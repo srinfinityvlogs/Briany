@@ -10,13 +10,9 @@ Run each suite separately, on your machine AND on Northflank:
     python phase1_checks.py announcements
     python phase1_checks.py news
     python phase1_checks.py events      # suite E: results calendar, results, corporate actions
-<<<<<<< HEAD
     python phase1_checks.py deals       # suite F: bulk/block deals, FII/DII, insider
     python phase1_checks.py llm         # suite H: Gemini tool-calling (needs GEMINI_API_KEY)
     python phase1_checks.py grounding   # suite I: Gemini + Google Search grounding
-=======
-    python phase1_checks.py deals       # suite F: bulk/block deals, FII/DII, insider, pledge
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
 
 Every check records PASS / FAIL / ERROR and never crashes the run.
 Results are appended to results/<label>.jsonl (label = --label, default "local").
@@ -300,14 +296,8 @@ def nse_probe(sess, suite, name, url, trim=230, want_items=True):
             return None
         count, label, first = summarize(data)
         sample = json.dumps(first[0], ensure_ascii=False)[:trim] if first else "-"
-<<<<<<< HEAD
         status = "PASS" if count > 0 else ("EMPTY" if not want_items else "FAIL")
         record(suite, name, status, f"{count} items ({label}); first: {sample}", items=count)
-=======
-        ok = count > 0 or not want_items
-        record(suite, name, "PASS" if ok else "FAIL", f"{count} items ({label}); first: {sample}",
-               items=count)
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
         return data
     except Exception as e:  # noqa: BLE001
         record(suite, name, "ERROR", f"{type(e).__name__}: {e}")
@@ -331,12 +321,9 @@ def suite_events(_a):
         for sym in E_SYMBOLS:
             cal = nse_probe(s, "events", f"event_calendar:{sym}",
                             f"{base}event-calendar?index=equities&symbol={sym}")
-<<<<<<< HEAD
             if isinstance(cal, list):
                 raw = [f"{it.get('date')}: {str(it.get('purpose'))[:40]}" for it in cal[:6]]
                 record("events", f"calendar_raw_dates:{sym}", "INFO", " | ".join(raw))
-=======
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
             # Extract the next results-related event on/after today, if any.
             try:
                 items = cal if isinstance(cal, list) else []
@@ -360,7 +347,6 @@ def suite_events(_a):
                            "no upcoming results event found in calendar (may be normal)")
             except Exception as e:  # noqa: BLE001
                 record("events", f"next_results:{sym}", "ERROR", f"{type(e).__name__}: {e}")
-<<<<<<< HEAD
             fr = nse_probe(s, "events", f"fin_results:{sym}",
                            f"{base}corporates-financial-results?index=equities&symbol={sym}&period=Quarterly")
             if isinstance(fr, list) and fr:
@@ -374,10 +360,6 @@ def suite_events(_a):
                        "newest broadcast dates: " + ", ".join(str(i.get("broadCastDate")) for i in newest)
                        + " | newest item: " + json.dumps(newest[0], ensure_ascii=False)[:600]
                        + "  (VERIFY revenue/profit against the company's own filing)")
-=======
-            nse_probe(s, "events", f"fin_results:{sym}",
-                      f"{base}corporates-financial-results?index=equities&symbol={sym}&period=Quarterly")
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
             nse_probe(s, "events", f"corp_actions:{sym}",
                       f"{base}corporates-corporateActions?index=equities&symbol={sym}",
                       want_items=False)
@@ -433,18 +415,12 @@ def suite_deals(_a):
     for sym in ["RELIANCE", "KRN", "TEMPSENS"]:
         nse_probe(s, "deals", f"insider_pit:{sym}",
                   f"{base}corporates-pit?index=equities&symbol={sym}", want_items=False)
-<<<<<<< HEAD
     record("deals", "promoter_pledge", "UNSUPPORTED",
            "earlier endpoint returned only a company-name list; correct source not yet identified")
-=======
-        nse_probe(s, "deals", f"pledge:{sym}",
-                  f"{base}corporate-pledgedata?index=equities&symbol={sym}", want_items=False)
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
     print("\nFor FII/DII and bulk deals, compare the latest figures with NSE's website. "
           "Note whether the data is for today or a previous session.")
 
 
-<<<<<<< HEAD
 
 # ---------------------------------------------------------------- H/I Gemini suites
 def suite_llm(a):
@@ -467,11 +443,6 @@ SUITES = {"env": suite_env, "symbols": suite_symbols, "prices": suite_prices,
           "accuracy": suite_accuracy, "announcements": suite_announcements, "news": suite_news,
           "events": suite_events, "deals": suite_deals,
           "llm": suite_llm, "grounding": suite_grounding}
-=======
-SUITES = {"env": suite_env, "symbols": suite_symbols, "prices": suite_prices,
-          "accuracy": suite_accuracy, "announcements": suite_announcements, "news": suite_news,
-          "events": suite_events, "deals": suite_deals}
->>>>>>> 6dd5923c850a60a53b115824a1bdf767d9492394
 
 
 def main():
