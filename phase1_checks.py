@@ -9,6 +9,8 @@ Run each suite separately, on your machine AND on Northflank:
     python phase1_checks.py accuracy --date 2026-10-30
     python phase1_checks.py announcements
     python phase1_checks.py news
+    python phase1_checks.py events      # suite E: results calendar, results, corporate actions
+    python phase1_checks.py deals       # suite F: bulk/block deals, FII/DII, insider, pledge
 
 Every check records PASS / FAIL / ERROR and never crashes the run.
 Results are appended to results/<label>.jsonl (label = --label, default "local").
@@ -85,7 +87,7 @@ def suite_env(_a):
         def probe(name=name, url=url, hdr=hdr):
             r = requests.get(url, headers=hdr, timeout=20)
             ok = r.status_code == 200
-            record("env", name, "PASS" if ok else "FAIL", f"HTTP {r.status_code}",
+            record("env", name, "PASS" if ok else "WARN", f"HTTP {r.status_code} (raw probe; real data paths may differ)",
                    http=r.status_code, bytes=len(r.content))
         safe("env", name)(probe)
 
@@ -262,8 +264,151 @@ def suite_news(_a):
     print("\nManually judge relevance: are these really about the company, and dated within 7 days?")
 
 
+
+# ---------------------------------------------------------------- shared NSE helper
+def summarize(data, n=2):
+    """Return (count, label, first_items) for a JSON payload of unknown shape."""
+    if isinstance(data, dict):
+        lists = {k: v for k, v in data.items() if isinstance(v, list)}
+        if lists:
+            k = max(lists, key=lambda x: len(lists[x]))
+            return len(lists[k]), f"key={k}", lists[k][:n]
+        return (1 if data else 0), f"keys={list(data)[:8]}", ([data] if data else [])
+    if isinstance(data, list):
+        return len(data), "list", data[:n]
+    return 0, type(data).__name__, []
+
+
+def nse_probe(sess, suite, name, url, trim=230, want_items=True):
+    """GET an NSE JSON endpoint; record status, item count and a short sample.
+    Returns parsed JSON or None. Never raises."""
+    try:
+        r = sess.get(url, timeout=25, headers={"Referer": NSE_HOME})
+        if r.status_code != 200:
+            record(suite, name, "FAIL", f"HTTP {r.status_code}")
+            return None
+        try:
+            data = r.json()
+        except ValueError:
+            record(suite, name, "ERROR", f"non-JSON response: {r.text[:100]!r}")
+            return None
+        count, label, first = summarize(data)
+        sample = json.dumps(first[0], ensure_ascii=False)[:trim] if first else "-"
+        ok = count > 0 or not want_items
+        record(suite, name, "PASS" if ok else "FAIL", f"{count} items ({label}); first: {sample}",
+               items=count)
+        return data
+    except Exception as e:  # noqa: BLE001
+        record(suite, name, "ERROR", f"{type(e).__name__}: {e}")
+        return None
+    finally:
+        time.sleep(1.5)
+
+
+# ---------------------------------------------------------------- E events and results
+E_SYMBOLS = ["RELIANCE", "TCS", "KRN", "TEMPSENS"]
+
+
+def suite_events(_a):
+    try:
+        s = nse_session()
+    except Exception as e:  # noqa: BLE001
+        record("events", "nse_session", "ERROR", f"{type(e).__name__}: {e}")
+        s = None
+    if s:
+        base = "https://www.nseindia.com/api/"
+        for sym in E_SYMBOLS:
+            cal = nse_probe(s, "events", f"event_calendar:{sym}",
+                            f"{base}event-calendar?index=equities&symbol={sym}")
+            # Extract the next results-related event on/after today, if any.
+            try:
+                items = cal if isinstance(cal, list) else []
+                upcoming = []
+                for it in items:
+                    text = json.dumps(it).lower()
+                    if "result" in text:
+                        d = str(it.get("date", ""))
+                        try:
+                            dt = datetime.strptime(d, "%d-%b-%Y")
+                        except ValueError:
+                            continue
+                        if dt.date() >= datetime.now().date():
+                            upcoming.append((dt, it.get("purpose", "")))
+                if upcoming:
+                    upcoming.sort()
+                    record("events", f"next_results:{sym}", "INFO",
+                           f"{upcoming[0][0].date()} - {upcoming[0][1]}  (VERIFY on the NSE/company site)")
+                else:
+                    record("events", f"next_results:{sym}", "INFO",
+                           "no upcoming results event found in calendar (may be normal)")
+            except Exception as e:  # noqa: BLE001
+                record("events", f"next_results:{sym}", "ERROR", f"{type(e).__name__}: {e}")
+            nse_probe(s, "events", f"fin_results:{sym}",
+                      f"{base}corporates-financial-results?index=equities&symbol={sym}&period=Quarterly")
+            nse_probe(s, "events", f"corp_actions:{sym}",
+                      f"{base}corporates-corporateActions?index=equities&symbol={sym}",
+                      want_items=False)
+            nse_probe(s, "events", f"board_meetings:{sym}",
+                      f"{base}corporate-board-meetings?index=equities&symbol={sym}")
+    # Yahoo's own calendar as a second opinion for the next earnings date
+    try:
+        import yfinance as yf
+        for sym in ["RELIANCE", "KRN"]:
+            try:
+                cal = yf.Ticker(f"{sym}.NS").calendar
+                record("events", f"yahoo_calendar:{sym}", "INFO" if cal else "FAIL", str(cal)[:200])
+            except Exception as e:  # noqa: BLE001
+                record("events", f"yahoo_calendar:{sym}", "ERROR", f"{type(e).__name__}: {e}")
+    except Exception as e:  # noqa: BLE001
+        record("events", "yahoo_import", "ERROR", str(e))
+    print("\nVerify each next-results date and the latest quarter's revenue/profit against the "
+          "company's filing. Quote nothing from memory.")
+
+
+# ---------------------------------------------------------------- F deals and flows
+def suite_deals(_a):
+    # 1) Archive CSVs on the host that has worked from the start (no cookies needed)
+    for name, url in [("bulk_csv", "https://nsearchives.nseindia.com/content/equities/bulk.csv"),
+                      ("block_csv", "https://nsearchives.nseindia.com/content/equities/block.csv")]:
+        def run(name=name, url=url):
+            r = requests.get(url, headers=UA, timeout=30)
+            if r.status_code != 200:
+                record("deals", name, "FAIL", f"HTTP {r.status_code}")
+                return
+            lines = r.text.strip().splitlines()
+            record("deals", name, "PASS" if len(lines) > 1 else "FAIL",
+                   f"{max(len(lines) - 1, 0)} data rows; header: {lines[0][:120] if lines else '-'}; "
+                   f"first: {lines[1][:140] if len(lines) > 1 else '-'}")
+        safe("deals", name)(run)
+
+    # 2) Cookie-based JSON endpoints
+    try:
+        s = nse_session()
+    except Exception as e:  # noqa: BLE001
+        record("deals", "nse_session", "ERROR", f"{type(e).__name__}: {e}")
+        return
+    base = "https://www.nseindia.com/api/"
+    big = nse_probe(s, "deals", "largedeal_snapshot", f"{base}snapshot-capital-market-largedeal")
+    if isinstance(big, dict):
+        for key in ("BULK_DEALS_DATA", "BLOCK_DEALS_DATA", "SHORT_DEALS_DATA"):
+            rows = big.get(key) or []
+            mine = [r for r in rows if str(r.get("symbol", "")).upper() in
+                    {x for x in NSE_SYMBOLS}]
+            record("deals", f"snapshot:{key}", "INFO",
+                   f"{len(rows)} rows; rows for our test symbols: {len(mine)}")
+    nse_probe(s, "deals", "fii_dii", f"{base}fiidiiTradeReact")
+    for sym in ["RELIANCE", "KRN", "TEMPSENS"]:
+        nse_probe(s, "deals", f"insider_pit:{sym}",
+                  f"{base}corporates-pit?index=equities&symbol={sym}", want_items=False)
+        nse_probe(s, "deals", f"pledge:{sym}",
+                  f"{base}corporate-pledgedata?index=equities&symbol={sym}", want_items=False)
+    print("\nFor FII/DII and bulk deals, compare the latest figures with NSE's website. "
+          "Note whether the data is for today or a previous session.")
+
+
 SUITES = {"env": suite_env, "symbols": suite_symbols, "prices": suite_prices,
-          "accuracy": suite_accuracy, "announcements": suite_announcements, "news": suite_news}
+          "accuracy": suite_accuracy, "announcements": suite_announcements, "news": suite_news,
+          "events": suite_events, "deals": suite_deals}
 
 
 def main():
