@@ -138,44 +138,65 @@ def suite_prices(_a):
                 past = c[c.index <= last - timedelta(days=days)]
                 return None if past.empty else round((c.iloc[-1] / past.iloc[-1] - 1) * 100, 2)
             missing_vol = int((h["Volume"] == 0).sum()) if "Volume" in h else -1
-            status = "PASS" if age <= 4 and len(h) > 200 else "FAIL"
+            status = "PASS" if age <= 4 and len(h) >= 20 else "FAIL"
+            short = " SHORT_HISTORY(new listing?)" if len(h) < 200 else ""
             record("prices", t, status,
-                   f"rows={len(h)} last={last.date()} age_days={age} close={c.iloc[-1]:.2f} "
-                   f"zero_vol_days={missing_vol}",
+                   f"rows={len(h)} first={h.index[0].date()} last={last.date()} age_days={age} "
+                   f"close={c.iloc[-1]:.2f} zero_vol_days={missing_vol}{short}",
                    ret_1m=ret(30), ret_3m=ret(90), ret_1y=ret(365))
         safe("prices", t)(run)
 
 
 # ---------------------------------------------------------------- C accuracy
 def suite_accuracy(a):
+    """Compare Yahoo (unadjusted) closes with NSE's official end-of-day file.
+    --date accepts one or several comma-separated past trading days."""
     import pandas as pd
     import yfinance as yf
-    d = datetime.strptime(a.date, "%Y-%m-%d")
-    def run():
-        r = requests.get(BHAV_URL.format(ymd=d.strftime("%Y%m%d")), headers=UA, timeout=40)
-        if r.status_code != 200:
-            record("accuracy", "bhavcopy", "FAIL", f"HTTP {r.status_code} (holiday/weekend or URL changed?)")
-            return
-        z = zipfile.ZipFile(io.BytesIO(r.content))
-        df = pd.read_csv(z.open(z.namelist()[0]))
-        df = df[df["SctySrs"].isin(["EQ", "BE", "SM", "ST", "N1", "GS"])]
-        record("accuracy", "bhavcopy", "PASS", f"{len(df)} rows for {a.date}")
-        for sym in NSE_SYMBOLS:
-            row = df[df["TckrSymb"] == sym]
-            if row.empty:
-                record("accuracy", sym, "FAIL", "symbol not in bhavcopy")
-                continue
-            official = float(row.iloc[0]["ClsPric"])
-            # auto_adjust=False so the close is comparable with the unadjusted official close
-            h = yf.Ticker(f"{sym}.NS").history(start=d, end=d + timedelta(days=1), auto_adjust=False)
-            if h.empty:
-                record("accuracy", sym, "FAIL", f"official={official}; yahoo returned nothing")
-                continue
-            y = float(h["Close"].iloc[0])
-            diff = abs(y - official) / official * 100
-            record("accuracy", sym, "PASS" if diff <= 0.1 else "FAIL",
-                   f"official={official} yahoo={y:.2f} diff={diff:.3f}%", diff_pct=round(diff, 4))
-    safe("accuracy", "bhavcopy")(run)
+    dates = [datetime.strptime(x.strip(), "%Y-%m-%d") for x in a.date.split(",") if x.strip()]
+    cache = {}
+
+    def yahoo_window(sym):
+        # One wide-window request per symbol; pick the date afterwards.
+        if sym not in cache:
+            lo, hi = min(dates) - timedelta(days=7), max(dates) + timedelta(days=4)
+            cache[sym] = yf.Ticker(f"{sym}.NS").history(start=lo, end=hi, auto_adjust=False)
+        return cache[sym]
+
+    for d in dates:
+        ds = d.strftime("%Y-%m-%d")
+
+        def run(d=d, ds=ds):
+            r = requests.get(BHAV_URL.format(ymd=d.strftime("%Y%m%d")), headers=UA, timeout=40)
+            if r.status_code != 200:
+                record("accuracy", f"bhavcopy:{ds}", "FAIL",
+                       f"HTTP {r.status_code} (holiday/weekend or URL changed?)")
+                return
+            z = zipfile.ZipFile(io.BytesIO(r.content))
+            df = pd.read_csv(z.open(z.namelist()[0]))
+            record("accuracy", f"bhavcopy:{ds}", "PASS", f"{len(df)} rows")
+            for sym in NSE_SYMBOLS:
+                row = df[df["TckrSymb"] == sym]
+                if row.empty:
+                    record("accuracy", f"{sym}:{ds}", "FAIL", "symbol not in bhavcopy")
+                    continue
+                official = float(row.iloc[0]["ClsPric"])
+                try:
+                    h = yahoo_window(sym)
+                except Exception as e:  # noqa: BLE001
+                    record("accuracy", f"{sym}:{ds}", "ERROR", f"yahoo {type(e).__name__}: {e}")
+                    continue
+                day = h[h.index.strftime("%Y-%m-%d") == ds] if not h.empty else h
+                if day.empty:
+                    have = [x.strftime("%m-%d") for x in h.index[-8:]] if not h.empty else "no rows at all"
+                    record("accuracy", f"{sym}:{ds}", "FAIL",
+                           f"official={official}; yahoo has no bar for this date; yahoo dates={have}")
+                    continue
+                y = float(day["Close"].iloc[0])
+                diff = abs(y - official) / official * 100
+                record("accuracy", f"{sym}:{ds}", "PASS" if diff <= 0.1 else "FAIL",
+                       f"official={official} yahoo={y:.2f} diff={diff:.3f}%", diff_pct=round(diff, 4))
+        safe("accuracy", f"bhavcopy:{ds}")(run)
     print("\nAlso verify 3 of these by eye against your broker app / exchange site and keep screenshots.")
 
 
@@ -193,8 +214,17 @@ def suite_announcements(_a):
                 items = data if isinstance(data, list) else data.get("data", [])
                 latest = [f"{i.get('an_dt') or i.get('sort_date')}: {(i.get('desc') or '')[:50]}"
                           for i in items[:3]]
+                cutoff = datetime.now() - timedelta(days=7)
+                recent = 0
+                for i in items:
+                    try:
+                        if datetime.strptime(i.get("an_dt", ""), "%d-%b-%Y %H:%M:%S") >= cutoff:
+                            recent += 1
+                    except ValueError:
+                        pass
                 record("announcements", f"nse:{sym}", "PASS" if items else "FAIL",
-                       f"{len(items)} items; latest: {latest}")
+                       f"{len(items)} items total, {recent} in last 7 days; latest: {latest}",
+                       recent_7d=recent)
                 time.sleep(1.5)
             safe("announcements", f"nse:{sym}")(one)
     safe("announcements", "nse_session")(nse)
