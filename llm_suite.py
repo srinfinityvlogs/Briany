@@ -374,12 +374,27 @@ def evaluate(case, res):
     return hard, soft
 
 
+def get_key(record, suite):
+    """Return the API key or None, recording a precise reason (never the key itself)."""
+    if "GEMINI_API_KEY" not in os.environ:
+        record(suite, "api_key", "SKIP",
+               "env var GEMINI_API_KEY is ABSENT: the workflow is not passing the secret "
+               "(old workflow file, or secret name/location wrong)")
+        return None
+    key = os.environ["GEMINI_API_KEY"].strip()
+    if not key:
+        record(suite, "api_key", "SKIP",
+               "env var GEMINI_API_KEY is present but EMPTY: the secret name is not found or its value is blank")
+        return None
+    record(suite, "api_key", "INFO", f"key present (length {len(key)})")
+    return key
+
+
 # ---------------------------------------------------------------- suites
 def run_llm(record, args):
     suite = "llm"
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    key = get_key(record, suite)
     if not key:
-        record(suite, "api_key", "SKIP", "GEMINI_API_KEY not set")
         return
     model = pick_model(record, key, suite)
     if not model:
@@ -415,9 +430,8 @@ GROUNDING_PROMPTS = [
 
 def run_grounding(record, args):
     suite = "grounding"
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    key = get_key(record, suite)
     if not key:
-        record(suite, "api_key", "SKIP", "GEMINI_API_KEY not set")
         return
     model = pick_model(record, key, suite)
     if not model:
