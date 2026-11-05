@@ -21,7 +21,7 @@ import requests
 API = "https://generativelanguage.googleapis.com/v1beta"
 PREFERRED = ["gemini-3-flash-preview", "gemini-flash-latest", "gemini-3.1-flash-lite",
              "gemini-3.5-flash", "gemini-2.5-flash"]
-PAUSE = float(os.environ.get("LLM_PAUSE", "5"))
+PAUSE = float(os.environ.get("LLM_PAUSE", "12"))
 STATS = {"calls": 0, "http429": 0, "errors": 0, "in_tokens": 0, "out_tokens": 0, "latency": 0.0}
 
 SYSTEM = """You are a stock-market assistant for Indian equities (NSE). Your replies are read in Telegram on a phone.
@@ -33,6 +33,17 @@ Rules:
 5. If tools return no data, an error, or nothing relevant, say so plainly. Never fill the gap with guesses. If a company cannot be found, say so.
 6. Do not give buy/sell advice or predict prices. Decline briefly and offer what you can do instead.
 7. Use conversation context for follow-up questions (e.g. 'it', 'that stock')."""
+
+import datetime as _dt
+SYSTEM = SYSTEM + (
+    f"\n8. Today's date is {_dt.date.today().isoformat()}. Resolve relative dates and dates without a year "
+    "(for example '3 Nov') against today's date and year."
+    "\n9. Call only the tools needed to answer; no extra calls. Copy the source and as_of values from tool "
+    "results exactly. Do not add disclaimers unless the user asks for advice or a prediction."
+    "\n10. 'Possible contributing factors' may list ONLY items that appear in the evidence data (filings, news, "
+    "deals, volume, index move). If there are none, say no clear evidence was found and stop. "
+    "Do not describe your own inferences as facts."
+)
 
 # ---------------------------------------------------------------- FIXTURES (synthetic)
 AS_OF = "2026-11-04 (FIXTURE)"
@@ -113,7 +124,11 @@ def tool_get_period_returns(symbol, period):
 
 
 def tool_compare_returns(symbol_a, symbol_b, period):
-    return {"a": tool_get_period_returns(symbol_a, period), "b": tool_get_period_returns(symbol_b, period)}
+    a, b = tool_get_period_returns(symbol_a, period), tool_get_period_returns(symbol_b, period)
+    out = {"a": a, "b": b}
+    if a.get("return_pct") is not None and b.get("return_pct") is not None:
+        out["difference_pct_points_a_minus_b"] = round(a["return_pct"] - b["return_pct"], 2)
+    return out
 
 
 def tool_get_announcements(symbol, days=7):
@@ -212,6 +227,26 @@ def _redact(text, key):
     return text.replace(key, "***") if key else text
 
 
+def _quota_detail(text):
+    """Pull the useful parts out of a Gemini 429 body (metric, limit, retry delay)."""
+    try:
+        j = json.loads(text)["error"]
+        bits = [str(j.get("message", ""))[:160]]
+        for d in j.get("details", []) or []:
+            for v in d.get("violations", []) or []:
+                bits.append(f"{v.get('quotaMetric', '')} {v.get('quotaId', '')} limit={v.get('quotaValue', '')}")
+            if d.get("retryDelay"):
+                bits.append(f"retryDelay={d['retryDelay']}")
+        return " | ".join(b for b in bits if b)[:700]
+    except Exception:  # noqa: BLE001
+        return text[:400]
+
+
+def _retry_seconds(text):
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', text)
+    return min(int(float(m.group(1))) + 2, 70) if m else 40
+
+
 def call(model, contents, key, tools=None, system=SYSTEM, tries=3):
     url = f"{API}/models/{model}:generateContent"
     body = {"systemInstruction": {"parts": [{"text": system}]}, "contents": contents}
@@ -230,13 +265,16 @@ def call(model, contents, key, tools=None, system=SYSTEM, tries=3):
             STATS["in_tokens"] += u.get("promptTokenCount", 0)
             STATS["out_tokens"] += u.get("candidatesTokenCount", 0)
             return data, None
-        err = f"HTTP {r.status_code}: {_redact(r.text, key)[:300]}"
         if r.status_code == 429:
+            err = f"HTTP 429: {_redact(_quota_detail(r.text), key)}"
             STATS["http429"] += 1
+            if "PerDay" in r.text:
+                break  # daily quota: waiting will not help
             if attempt < tries - 1:
-                time.sleep(25)
+                time.sleep(_retry_seconds(r.text))
                 continue
         else:
+            err = f"HTTP {r.status_code}: {_redact(r.text, key)[:300]}"
             STATS["errors"] += 1
         break
     return None, err
@@ -399,7 +437,10 @@ def run_llm(record, args):
     model = pick_model(record, key, suite)
     if not model:
         return
-    for case in CASES:
+    only = {x.strip() for x in os.environ.get("LLM_CASES", "").split(",") if x.strip()}
+    todo = [c for c in CASES if not only or c[0] in only]
+    done = []
+    for case in todo:
         res = run_case(model, case, key)
         cid = case[0]
         if "error" in res:
@@ -407,12 +448,18 @@ def run_llm(record, args):
             if "429" in res["error"]:
                 record(suite, "quota", "WARN", "rate/quota limit hit; stopping the suite early")
                 break
+            done.append(cid)
             continue
+        done.append(cid)
         hard, soft = evaluate(case, res)
         status = "FAIL" if hard else ("REVIEW" if soft else "PASS")
         calls = "; ".join(f"{n}({json.dumps(a, ensure_ascii=False)})" for n, a in res["calls"]) or "none"
         record(suite, cid, status, f"calls: {calls} | issues: {hard + soft or 'none'}")
         print("    ANSWER >>> " + res["answer"].replace("\n", "\n              ") + "\n")
+    left = [c[0] for c in todo if c[0] not in done]
+    if left:
+        record(suite, "not_run", "WARN", "cases not completed: " + ",".join(left)
+               + "  -> rerun with the 'cases' input set to exactly this list")
     n = max(STATS["calls"], 1)
     record(suite, "usage", "INFO",
            f"model={model} calls={STATS['calls']} http429={STATS['http429']} other_errors={STATS['errors']} "

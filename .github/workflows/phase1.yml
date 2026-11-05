@@ -12,6 +12,10 @@ on:
         description: "Optional Gemini model id (leave empty to auto-pick)"
         required: false
         default: ""
+      cases:
+        description: "LLM suite only: comma-separated case ids to run (empty = all), e.g. W3,W4,W5"
+        required: false
+        default: ""
       suites:
         description: "Suite name or 'all'"
         required: true
@@ -31,6 +35,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ github.event.inputs.gemini_model }}
+          LLM_CASES: ${{ github.event.inputs.cases }}
         run: python phase1_checks.py "${{ github.event.inputs.suites }}" --label github-actions --date "${{ github.event.inputs.date }}"
       - name: Save results
         if: always()
