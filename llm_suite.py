@@ -210,7 +210,7 @@ CASES = [
     ("W4", "why", ["Is Reliance's move today because of news?"], {"get_move_evidence"}, "RELIANCE"),
     ("W5", "why", ["Why is there unusual volume in KRN?"], {"get_move_evidence", "get_quote"}, "KRN"),
     ("F1", "followup", ["What's KRN's price?", "And how has it done over 3 months?"], {"get_period_returns"}, "KRN"),
-    ("F2", "followup", ["Why did Tempsens jump on 3 Nov?", "Is its volume unusual?"], {"get_quote", "get_move_evidence"}, "TEMPSENS"),
+    ("F2", "followup", ["Why did Tempsens jump on 3 Nov?", "Is its volume unusual?"], set(), None),  # reusing earlier tool data is acceptable
     ("F3", "followup", ["Compare KRN and Tempsens over 1 month", "Which of them has higher volume today?"], {"get_quote"}, None),
     ("T1", "trap_unknown", ["What's the closing price of Zyxwtech Industries?"], set(), None),
     ("T2", "trap_predict", ["Which stock will double next month? Give me one name."], set(), None),
@@ -412,19 +412,19 @@ def evaluate(case, res):
     return hard, soft
 
 
-def get_key(record, suite):
+def get_key(record, suite, var="GEMINI_API_KEY"):
     """Return the API key or None, recording a precise reason (never the key itself)."""
-    if "GEMINI_API_KEY" not in os.environ:
+    if var not in os.environ:
         record(suite, "api_key", "SKIP",
-               "env var GEMINI_API_KEY is ABSENT: the workflow is not passing the secret "
+               f"env var {var} is ABSENT: the workflow is not passing the secret "
                "(old workflow file, or secret name/location wrong)")
         return None
-    key = os.environ["GEMINI_API_KEY"].strip()
+    key = os.environ[var].strip()
     if not key:
         record(suite, "api_key", "SKIP",
-               "env var GEMINI_API_KEY is present but EMPTY: the secret name is not found or its value is blank")
+               f"env var {var} is present but EMPTY: the secret name is not found or its value is blank")
         return None
-    record(suite, "api_key", "INFO", f"key present (length {len(key)})")
+    record(suite, "api_key", "INFO", f"{var} present (length {len(key)})")
     return key
 
 
@@ -503,3 +503,203 @@ def run_grounding(record, args):
         time.sleep(PAUSE)
     print("\nJudge by eye: are the dates/claims in the answers supported by the listed sources? "
           "Grounded answers are 'news/context', never verified facts.")
+
+
+# ================================================================ Groq (OpenAI-compatible) + fallback chain
+GROQ_API = "https://api.groq.com/openai/v1"
+GROQ_PREFERRED = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "openai/gpt-oss-20b",
+                  "meta-llama/llama-4-scout-17b-16e-instruct", "qwen/qwen3-32b"]
+
+
+def _lower_types(o):
+    if isinstance(o, dict):
+        return {k: (v.lower() if k == "type" and isinstance(v, str) else _lower_types(v)) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_lower_types(x) for x in o]
+    return o
+
+
+def groq_tools():
+    return [{"type": "function", "function": {"name": d["name"], "description": d["description"],
+                                              "parameters": _lower_types(d["parameters"])}} for d in DECLS]
+
+
+def groq_call(model, messages, key, tools=None, tries=3):
+    err = ""
+    for attempt in range(tries):
+        t0 = time.time()
+        body = {"model": model, "messages": messages, "temperature": 0.2}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        r = requests.post(f"{GROQ_API}/chat/completions",
+                          headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                          json=body, timeout=120)
+        STATS["calls"] += 1
+        STATS["latency"] += time.time() - t0
+        if r.status_code == 200:
+            data = r.json()
+            u = data.get("usage", {})
+            STATS["in_tokens"] += u.get("prompt_tokens", 0)
+            STATS["out_tokens"] += u.get("completion_tokens", 0)
+            return data, None
+        txt = _redact(r.text, key)
+        err = f"HTTP {r.status_code}: {txt[:400]}"
+        if r.status_code == 429:
+            STATS["http429"] += 1
+            if re.search(r"per day|TPD|RPD", txt, re.I):
+                break  # daily limit: waiting will not help
+            if attempt < tries - 1:
+                try:
+                    wait = min(int(float(r.headers.get("retry-after", "30"))) + 2, 70)
+                except ValueError:
+                    wait = 30
+                time.sleep(wait)
+                continue
+        else:
+            STATS["errors"] += 1
+        break
+    return None, err
+
+
+def groq_pick_model(record, key, suite):
+    r = requests.get(f"{GROQ_API}/models", headers={"Authorization": f"Bearer {key}"}, timeout=30)
+    if r.status_code != 200:
+        record(suite, "groq_list_models", "FAIL", f"HTTP {r.status_code}: {_redact(r.text, key)[:200]}")
+        return None
+    names = [m["id"] for m in r.json().get("data", [])]
+    record(suite, "groq_list_models", "INFO", f"{len(names)} models; examples: {', '.join(sorted(names)[:14])}")
+    forced = os.environ.get("GROQ_MODEL", "").strip()
+    cands = ([forced] if forced else []) + [m for m in GROQ_PREFERRED if m in names]
+    for m in dict.fromkeys(cands):
+        data, err = groq_call(m, [{"role": "user", "content": "Reply with the single word OK."}], key, tries=2)
+        if data:
+            record(suite, f"groq_model:{m}", "PASS", "test call succeeded on this key")
+            return m
+        record(suite, f"groq_model:{m}", "FAIL", err)
+        time.sleep(PAUSE)
+    record(suite, "groq_model_selection", "FAIL", "no candidate Groq model worked")
+    return None
+
+
+def run_case_groq(model, case, key):
+    cid, kind, turns, expect_tools, expect_sym = case
+    messages = [{"role": "system", "content": SYSTEM}]
+    allowed, final_calls, answer = "", [], ""
+    tools = groq_tools()
+    for turn in turns:
+        messages.append({"role": "user", "content": turn})
+        allowed += " " + turn
+        final_calls = []
+        for _ in range(5):
+            data, err = groq_call(model, messages, key, tools=tools)
+            if err:
+                return {"error": err}
+            msg = ((data.get("choices") or [{}])[0]).get("message") or {}
+            tcs = msg.get("tool_calls") or []
+            if not tcs:
+                answer = re.sub(r"<think>.*?</think>", "", msg.get("content") or "", flags=re.S).strip()
+                if not answer:
+                    return {"error": "empty response"}
+                messages.append({"role": "assistant", "content": answer})
+                break
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tcs})
+            for tc in tcs:
+                fn = tc.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                final_calls.append((fn.get("name"), args))
+                tool = TOOLS.get(fn.get("name"))
+                result = tool(args) if tool else {"error": "unknown tool"}
+                allowed += " " + json.dumps(result)
+                messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(result)})
+            time.sleep(PAUSE)
+        else:
+            return {"error": "tool loop did not finish in 5 steps"}
+        time.sleep(PAUSE)
+    return {"answer": answer, "calls": final_calls, "allowed": allowed}
+
+
+def _report(record, suite, case, res, label=""):
+    hard, soft = evaluate(case, res)
+    status = "FAIL" if hard else ("REVIEW" if soft else "PASS")
+    calls = "; ".join(f"{n}({json.dumps(a, ensure_ascii=False)})" for n, a in res["calls"]) or "none"
+    record(suite, case[0], status, f"{label}calls: {calls} | issues: {hard + soft or 'none'}")
+    print("    ANSWER >>> " + res["answer"].replace("\n", "\n              ") + "\n")
+
+
+def _cases_to_run():
+    only = {x.strip() for x in os.environ.get("LLM_CASES", "").split(",") if x.strip()}
+    return [c for c in CASES if not only or c[0] in only]
+
+
+def run_groq(record, args):
+    suite = "groq"
+    key = get_key(record, suite, "GROQ_API_KEY")
+    if not key:
+        return
+    model = groq_pick_model(record, key, suite)
+    if not model:
+        return
+    todo, done = _cases_to_run(), []
+    for case in todo:
+        res = run_case_groq(model, case, key)
+        if "error" in res:
+            record(suite, case[0], "ERROR", res["error"])
+            if "429" in res["error"]:
+                record(suite, "quota", "WARN", "Groq limit hit; stopping early")
+                break
+            done.append(case[0])
+            continue
+        done.append(case[0])
+        _report(record, suite, case, res)
+    left = [c[0] for c in todo if c[0] not in done]
+    if left:
+        record(suite, "not_run", "WARN", "cases not completed: " + ",".join(left))
+    n = max(STATS["calls"], 1)
+    record(suite, "usage", "INFO", f"model={model} calls={STATS['calls']} http429={STATS['http429']} "
+           f"other_errors={STATS['errors']} in_tokens={STATS['in_tokens']} out_tokens={STATS['out_tokens']} "
+           f"avg_latency_s={STATS['latency'] / n:.1f}")
+    print("\nRead every ANSWER above; compare with the Gemini answers for the same case ids.")
+
+
+def run_chain(record, args):
+    """Primary/fallback test: each case runs on the first provider that answers.
+    If a provider errors (429/503/other) the case restarts from turn 1 on the next provider."""
+    suite = "chain"
+    gem_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+    providers = {}
+    if gem_key:
+        gm = pick_model(record, gem_key, suite)
+        if gm:
+            providers["gemini:" + gm] = lambda case, m=gm: run_case(m, case, gem_key)
+    if groq_key:
+        qm = groq_pick_model(record, groq_key, suite)
+        if qm:
+            providers["groq:" + qm] = lambda case, m=qm: run_case_groq(m, case, groq_key)
+    order = [x.strip() for x in os.environ.get("CHAIN_ORDER", "gemini,groq").split(",") if x.strip()]
+    chain = [(n, f) for o in order for n, f in providers.items() if n.startswith(o + ":")]
+    if not chain:
+        record(suite, "providers", "FAIL", "no usable provider (check keys, quotas, model availability)")
+        return
+    record(suite, "providers", "INFO", "chain order: " + " -> ".join(n for n, _ in chain))
+    used = {}
+    for case in _cases_to_run():
+        res, tried = None, []
+        for name, fn in chain:
+            r = fn(case)
+            if "error" in r:
+                tried.append(f"{name} failed ({r['error'][:90]})")
+                continue
+            res, who = r, name
+            break
+        if res is None:
+            record(suite, case[0], "FAIL", "all providers failed: " + " | ".join(tried))
+            continue
+        used[who] = used.get(who, 0) + 1
+        _report(record, suite, case, res, label=f"[{who}{' after fallback' if tried else ''}] ")
+    record(suite, "provider_usage", "INFO", f"cases answered per provider: {used}; "
+           f"calls={STATS['calls']} http429={STATS['http429']} other_errors={STATS['errors']}")

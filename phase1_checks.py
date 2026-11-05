@@ -13,6 +13,8 @@ Run each suite separately, on your machine AND on Northflank:
     python phase1_checks.py deals       # suite F: bulk/block deals, FII/DII, insider
     python phase1_checks.py llm         # suite H: Gemini tool-calling (needs GEMINI_API_KEY)
     python phase1_checks.py grounding   # suite I: Gemini + Google Search grounding
+    python phase1_checks.py groq        # suite J: same prompts on Groq (needs GROQ_API_KEY)
+    python phase1_checks.py chain       # suite K: Gemini primary, Groq fallback
 
 Every check records PASS / FAIL / ERROR and never crashes the run.
 Results are appended to results/<label>.jsonl (label = --label, default "local").
@@ -54,7 +56,7 @@ def record(suite, name, status, detail="", **extra):
     row = {"ts": datetime.now(timezone.utc).isoformat(), "env": LABEL, "suite": suite,
            "check": name, "status": status, "detail": str(detail)[:500], **extra}
     RESULTS.append(row)
-    print(f"[{status:5}] {suite}/{name}: {str(detail)[:160]}")
+    print(f"[{status:5}] {suite}/{name}: {str(detail)[:400]}")
 
 
 def safe(suite, name):
@@ -439,10 +441,27 @@ def suite_grounding(a):
         record("grounding", "suite", "ERROR", f"{type(e).__name__}: {e}")
 
 
+def suite_groq(a):
+    try:
+        import llm_suite
+        llm_suite.run_groq(record, a)
+    except Exception as e:  # noqa: BLE001
+        record("groq", "suite", "ERROR", f"{type(e).__name__}: {e}")
+
+
+def suite_chain(a):
+    try:
+        import llm_suite
+        llm_suite.run_chain(record, a)
+    except Exception as e:  # noqa: BLE001
+        record("chain", "suite", "ERROR", f"{type(e).__name__}: {e}")
+
+
 SUITES = {"env": suite_env, "symbols": suite_symbols, "prices": suite_prices,
           "accuracy": suite_accuracy, "announcements": suite_announcements, "news": suite_news,
           "events": suite_events, "deals": suite_deals,
-          "llm": suite_llm, "grounding": suite_grounding}
+          "llm": suite_llm, "grounding": suite_grounding,
+          "groq": suite_groq, "chain": suite_chain}
 
 
 def main():
