@@ -1,13 +1,17 @@
 """Step 0 hosting spike: can a Vercel function reach NSE, Yahoo and Groq?
 Throwaway. Open: https://<your-app>.vercel.app/spike?token=<SPIKE_TOKEN>
 """
+import csv
 import hmac
+import io
 import os
 import time
+import zipfile
+from datetime import datetime, timedelta
 from collections import Counter
 
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 
 app = FastAPI()
 
@@ -123,3 +127,101 @@ def spike(token: str = Query(""), date: str = Query("2026-11-04")):
             timed("groq_chat", groq_chat),
         ],
     }
+
+
+# ------------------------------------------------------------ v3: price sources
+def nse_get(path, params=None):
+    s, home = nse_session()
+    r = s.get(f"{NSE_HOME}/api/{path}", params=params, timeout=25,
+              headers={"Referer": NSE_HOME})
+    return r, home
+
+
+def probe_quote():
+    r, home = nse_get("quote-equity", {"symbol": "RELIANCE"})
+    d = r.json() if r.ok else {}
+    pi = d.get("priceInfo", {}) or {}
+    return {"home_status": home, "status": r.status_code, "top_keys": list(d.keys())[:10],
+            "lastPrice": pi.get("lastPrice"), "previousClose": pi.get("previousClose"),
+            "pChange": pi.get("pChange"),
+            "lastUpdateTime": (d.get("metadata", {}) or {}).get("lastUpdateTime")}
+
+
+def probe_historical(date):
+    end = datetime.strptime(date, "%Y-%m-%d")
+    start = end - timedelta(days=6)
+    r, home = nse_get("historical/cm/equity",
+                      {"symbol": "RELIANCE", "series": '["EQ"]',
+                       "from": start.strftime("%d-%m-%Y"), "to": end.strftime("%d-%m-%Y")})
+    d = r.json() if r.ok else {}
+    rows = d.get("data", []) if isinstance(d, dict) else []
+    return {"home_status": home, "status": r.status_code, "rows": len(rows),
+            "first_row": rows[0] if rows else None, "last_row": rows[-1] if rows else None}
+
+
+def probe_ann_dates(date):
+    end = datetime.strptime(date, "%Y-%m-%d")
+    start = end - timedelta(days=7)
+    r, home = nse_get("corporate-announcements",
+                      {"index": "equities", "symbol": "RELIANCE",
+                       "from_date": start.strftime("%d-%m-%Y"), "to_date": end.strftime("%d-%m-%Y")})
+    items = r.json() if r.ok else []
+    return {"home_status": home, "status": r.status_code,
+            "items": len(items) if isinstance(items, list) else None,
+            "oldest": items[-1].get("an_dt") if items else None,
+            "newest": items[0].get("an_dt") if items else None}
+
+
+def probe_indices():
+    r, home = nse_get("allIndices")
+    d = r.json() if r.ok else {}
+    rows = d.get("data", []) if isinstance(d, dict) else []
+    nifty = next((x for x in rows if x.get("index") == "NIFTY 50"), None)
+    return {"home_status": home, "status": r.status_code, "indices": len(rows),
+            "nifty": {k: nifty.get(k) for k in ("last", "percentChange", "previousClose")} if nifty else None}
+
+
+def probe_bhav(date):
+    ymd = date.replace("-", "")
+    r = requests.get("https://nsearchives.nseindia.com/content/cm/"
+                     f"BhavCopy_NSE_CM_0_0_0_{ymd}_F_0000.csv.zip", headers=UA, timeout=30)
+    if not r.ok:
+        return {"status": r.status_code}
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    rows = list(csv.DictReader(io.TextIOWrapper(z.open(z.namelist()[0]), encoding="utf-8")))
+    hit = [x for x in rows if x.get("TckrSymb") == "RELIANCE" and x.get("SctySrs") == "EQ"]
+    return {"status": r.status_code, "rows": len(rows),
+            "columns": list(rows[0].keys())[:30] if rows else None,
+            "reliance": {k: hit[0].get(k) for k in ("TradDt", "ClsPric", "PrvsClsPric", "TtlTradgVol")} if hit else None}
+
+
+@app.get("/spike2")
+def spike2(token: str = Query(""), date: str = Query("2026-11-04")):
+    expected = os.environ.get("SPIKE_TOKEN", "")
+    if not expected or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {"vercel_region": os.environ.get("VERCEL_REGION"),
+            "checks": [timed("nse_quote", probe_quote),
+                       timed("nse_historical", lambda: probe_historical(date)),
+                       timed("nse_ann_date_filter", lambda: probe_ann_dates(date)),
+                       timed("nse_all_indices", probe_indices),
+                       timed("bhavcopy_parse", lambda: probe_bhav(date))]}
+
+
+# ------------------------------------------------------------ step 0b: webhook echo
+@app.post("/telegram")
+async def telegram(request: Request,
+                   x_telegram_bot_api_secret_token: str = Header("")):
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    if not secret or not hmac.compare_digest(x_telegram_bot_api_secret_token, secret):
+        raise HTTPException(status_code=403, detail="forbidden")
+    update = await request.json()
+    msg = update.get("message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    text = msg.get("text") or ""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if chat_id and text and token:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", timeout=10,
+                      json={"chat_id": chat_id,
+                            "text": f"Echo: {text[:200]}\nRegion: {os.environ.get('VERCEL_REGION')}"})
+    return {"ok": True}
