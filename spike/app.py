@@ -192,7 +192,7 @@ def probe_bhav(date):
     hit = [x for x in rows if x.get("TckrSymb") == "RELIANCE" and x.get("SctySrs") == "EQ"]
     return {"status": r.status_code, "rows": len(rows),
             "columns": list(rows[0].keys())[:30] if rows else None,
-            "reliance": {k: hit[0].get(k) for k in ("TradDt", "ClsPric", "PrvsClsPric", "TtlTradgVol")} if hit else None}
+            "reliance": {k: hit[0].get(k) for k in ("TradDt", "ClsPric", "PrvsClsgPric", "TtlTradgVol")} if hit else None}
 
 
 @app.get("/spike2")
