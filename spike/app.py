@@ -1,13 +1,14 @@
 """Step 0 hosting spike: can a Vercel function reach NSE, Yahoo and Groq?
-Throwaway. Open: https://<your-app>.vercel.app/api/spike?token=<SPIKE_TOKEN>
+Throwaway. Open: https://<your-app>.vercel.app/spike?token=<SPIKE_TOKEN>
 """
-import json
+import hmac
 import os
 import time
-from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
 
 import requests
+from fastapi import FastAPI, HTTPException, Query
+
+app = FastAPI()
 
 UA = {
     "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -69,23 +70,20 @@ def groq_models():
                                    if k.lower().startswith("x-ratelimit")}}
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        q = parse_qs(urlparse(self.path).query)
-        expected = os.environ.get("SPIKE_TOKEN", "")
-        if not expected or q.get("token", [""])[0] != expected:
-            self.send_response(403)
-            self.end_headers()
-            return
-        report = {
-            "vercel_region": os.environ.get("VERCEL_REGION"),
-            "checks": [timed("nse_announcements", nse_announcements),
-                       timed("nse_archive_csv", nse_archive_csv),
-                       timed("yahoo_chart", yahoo_chart),
-                       timed("groq_models", groq_models)],
-        }
-        body = json.dumps(report, indent=2).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(body)
+@app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+@app.get("/spike")
+def spike(token: str = Query("")):
+    expected = os.environ.get("SPIKE_TOKEN", "")
+    if not expected or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {
+        "vercel_region": os.environ.get("VERCEL_REGION"),
+        "checks": [timed("nse_announcements", nse_announcements),
+                   timed("nse_archive_csv", nse_archive_csv),
+                   timed("yahoo_chart", yahoo_chart),
+                   timed("groq_models", groq_models)],
+    }
