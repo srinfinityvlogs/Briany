@@ -192,7 +192,7 @@ def probe_bhav(date):
     hit = [x for x in rows if x.get("TckrSymb") == "RELIANCE" and x.get("SctySrs") == "EQ"]
     return {"status": r.status_code, "rows": len(rows),
             "columns": list(rows[0].keys())[:30] if rows else None,
-            "reliance": {k: hit[0].get(k) for k in ("TradDt", "ClsPric", "PrvsClsgPric", "TtlTradgVol")} if hit else None}
+            "reliance": {k: hit[0].get(k) for k in ("TradDt", "ClsPric", "PrvsClsPric", "TtlTradgVol")} if hit else None}
 
 
 @app.get("/spike2")
@@ -225,3 +225,49 @@ async def telegram(request: Request,
                       json={"chat_id": chat_id,
                             "text": f"Echo: {text[:200]}\nRegion: {os.environ.get('VERCEL_REGION')}"})
     return {"ok": True}
+
+
+# ------------------------------------------------------------ step 0c: storage test
+def redis_cmd(*args):
+    url = os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL")
+    tok = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
+    if not url or not tok:
+        raise RuntimeError("no Redis REST url/token env vars found")
+    r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
+                      json=list(args), timeout=15)
+    r.raise_for_status()
+    return r.json().get("result")
+
+
+def redis_roundtrip():
+    stamp = str(time.time())
+    redis_cmd("SET", "spike:ping", stamp, "EX", 300)
+    got = redis_cmd("GET", "spike:ping")
+    if got != stamp:
+        raise RuntimeError("value mismatch")
+    return {"status": 200, "roundtrip": "ok"}
+
+
+def redis_big_hash():
+    # ~2,000 symbol->close pairs in ONE command, like one day's closes
+    args = ["HSET", "spike:day"]
+    for i in range(2000):
+        args += [f"SYM{i:04d}", f"{1000 + i / 7:.2f}"]
+    n = redis_cmd(*args)
+    size = redis_cmd("HLEN", "spike:day")
+    redis_cmd("EXPIRE", "spike:day", 300)
+    return {"status": 200, "fields_added": n, "hlen": size,
+            "payload_bytes": len(str(args))}
+
+
+@app.get("/storage")
+def storage(token: str = Query("")):
+    expected = os.environ.get("SPIKE_TOKEN", "")
+    if not expected or not hmac.compare_digest(token, expected):
+        raise HTTPException(status_code=403, detail="forbidden")
+    names = sorted(k for k in os.environ
+                   if k.startswith(("UPSTASH", "KV_", "REDIS")))
+    return {"vercel_region": os.environ.get("VERCEL_REGION"),
+            "redis_env_var_names": names,
+            "checks": [timed("redis_set_get", redis_roundtrip),
+                       timed("redis_big_hash", redis_big_hash)]}
