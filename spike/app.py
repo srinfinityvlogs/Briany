@@ -229,14 +229,21 @@ async def telegram(request: Request,
 
 # ------------------------------------------------------------ step 0c: storage test
 def redis_cmd(*args):
+    """Use the REST API if its env vars exist, else a TCP connection (redis-py)."""
     url = os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL")
     tok = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
-    if not url or not tok:
-        raise RuntimeError("no Redis REST url/token env vars found")
-    r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
-                      json=list(args), timeout=15)
-    r.raise_for_status()
-    return r.json().get("result")
+    if url and tok:
+        r = requests.post(url, headers={"Authorization": f"Bearer {tok}"},
+                          json=list(args), timeout=15)
+        r.raise_for_status()
+        return r.json().get("result")
+    conn = os.environ.get("KV_REDIS_URL") or os.environ.get("REDIS_URL")
+    if not conn:
+        raise RuntimeError("no Redis env vars found (REST or TCP)")
+    import redis
+    client = redis.Redis.from_url(conn, socket_timeout=10, socket_connect_timeout=10,
+                                  decode_responses=True)
+    return client.execute_command(*args)
 
 
 def redis_roundtrip():
