@@ -33,6 +33,9 @@ def run_check(store, out=print) -> bool:
         d += timedelta(days=1)
     out(f"missing weekdays ({len(missing)}, expected to be market holidays): " + ", ".join(missing[:40]))
 
+    specials = [d for d in days if date.fromisoformat(d).weekday() >= 5]
+    out(f"weekend sessions stored ({len(specials)}): " + ", ".join(specials))
+
     ok = True
     for sym, expected in KNOWN_CLOSES.items():
         parts = []
@@ -51,6 +54,14 @@ def run_check(store, out=print) -> bool:
     if len(days) >= 2:
         sample = chain_breaks(store, days[-1], days[-2])[:8]
         out("sample (symbol, prior close, stated previous close): " + "; ".join(f"{s} {a} -> {b}" for s, a, b in sample))
+
+    audit = []
+    for prior, day in zip(days, days[1:]):
+        n = len(chain_breaks(store, day, prior))
+        if n:
+            audit.append((day, n))
+    out(f"chain audit over {max(len(days) - 1, 0)} day pairs: {len(audit)} day(s) with breaks")
+    out("days with breaks (date: symbols): " + ", ".join(f"{d}: {n}" for d, n in audit[:30]))
 
     m = daily_move(store, "RELIANCE")
     out(f"RELIANCE daily move: {m.status} {m.date} close {m.close} prev {m.prev_close} pct {m.pct} chain_ok {m.prev_matches_store}")

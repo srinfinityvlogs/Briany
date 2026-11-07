@@ -1,7 +1,7 @@
 import pytest
 
 from briany.ingest import (backfill, ingest_day, memory_report, prune_history, redis_url_problem,
-                           redis_url_structure_problem, weekdays)
+                           redis_url_structure_problem, calendar_days)
 from briany.marketdata import DataError
 from briany.nsefiles import FetchError
 from briany.store import MemoryStore
@@ -63,8 +63,9 @@ def test_refuses_suspiciously_small_or_wrong_files():
                    fetch=fake_fetch({"2026-11-04": make_csv("2026-11-03", PRICES)}))
 
 
-def test_weekdays_skips_weekends():
-    assert list(weekdays("2026-11-06", "2026-11-10")) == ["2026-11-06", "2026-11-09", "2026-11-10"]
+def test_calendar_days_include_weekends():
+    assert list(calendar_days("2026-11-06", "2026-11-10")) == [
+        "2026-11-06", "2026-11-07", "2026-11-08", "2026-11-09", "2026-11-10"]
 
 
 def test_backfill_counts_and_polite_sleeps():
@@ -75,9 +76,18 @@ def test_backfill_counts_and_polite_sleeps():
     store.put_day("2026-11-10", {"X": None})                       # already stored
     counts = backfill(store, "2026-11-06", "2026-11-10", fetch=fake_fetch(files),
                       min_interval=1.0, sleep=slept.append, log=logs.append)
-    assert dict(counts) == {"stored": 1, "no_file": 1, "exists": 1}
-    assert slept == [1.0, 1.0]                                     # no sleep for skipped day
-    assert len(logs) == 3
+    # 06 stored; 07 (Sat), 08 (Sun) and 09 (holiday) have no file; 10 already stored
+    assert dict(counts) == {"stored": 1, "no_file": 3, "exists": 1}
+    assert slept == [1.0] * 4                                      # no sleep for the skipped day
+    assert len(logs) == 5
+
+
+def test_backfill_stores_a_special_weekend_session():
+    files = {"2026-02-01": make_csv("2026-02-01", PRICES)}         # a Sunday special session
+    store = MemoryStore()
+    backfill(store, "2026-01-31", "2026-02-02", fetch=fake_fetch(files), sleep=NOSLEEP,
+             log=lambda *_: None)
+    assert store.all_days() == ["2026-02-01"]
 
 
 def test_backfill_stops_on_block():

@@ -34,3 +34,14 @@ def test_run_check_fails_on_wrong_close_or_empty_store():
     s.put_day("2026-11-04", {"RELIANCE": PriceRow(1000.0, 1307.9, 1)})
     assert run_check(s, out=lambda *_: None) is False
     assert run_check(MemoryStore(), out=lambda *_: None) is False
+
+
+def test_run_check_reports_weekend_sessions_and_chain_audit():
+    s = store_with_known(adjusted_symbol=True)
+    s.put_day("2026-11-08", {"RELIANCE": PriceRow(1321.0, 1320.0, 1)})   # a Sunday (Muhurat)
+    lines = []
+    run_check(s, out=lines.append)
+    text = "\n".join(lines)
+    assert "weekend sessions stored (1): 2026-11-08" in text
+    assert "chain audit over 4 day pairs: 1 day(s) with breaks" in text
+    assert "2026-11-06: 1" in text

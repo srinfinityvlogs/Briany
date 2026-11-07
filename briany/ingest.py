@@ -1,6 +1,6 @@
 """Fill the Redis price history from NSE end-of-day files.
 
-  python -m briany.ingest --recent 5
+  python -m briany.ingest --recent 7
   python -m briany.ingest --start 2025-11-03 --end 2026-11-06
 Needs REDIS_URL (or KV_REDIS_URL). Safe to re-run: stored days are skipped.
 """
@@ -73,11 +73,12 @@ def prune_history(store, keep_days: int, max_per_run: int = 40):
     return store.prune_before(cutoff, max_per_run)
 
 
-def weekdays(start: str, end: str):
+def calendar_days(start: str, end: str):
+    """Every calendar day: NSE sometimes holds special weekend sessions (Budget day, Muhurat).
+    Ordinary weekends return 404 and are reported as no_file."""
     d, last = Date.fromisoformat(start), Date.fromisoformat(end)
     while d <= last:
-        if d.weekday() < 5:
-            yield d.isoformat()
+        yield d.isoformat()
         d += timedelta(days=1)
 
 
@@ -105,7 +106,7 @@ def ingest_day(store, day, fetch=fetch_bhavcopy, force=False, retries=1, sleep=t
 def backfill(store, start, end, fetch=fetch_bhavcopy, force=False,
              min_interval=1.0, sleep=time.sleep, log=print) -> Counter:
     counts: Counter = Counter()
-    for day in weekdays(start, end):
+    for day in calendar_days(start, end):
         result = ingest_day(store, day, fetch=fetch, force=force, sleep=sleep)
         counts[result] += 1
         log(f"{day}: {result}")
@@ -140,7 +141,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--start")
     ap.add_argument("--end")
-    ap.add_argument("--recent", type=int, help="ingest the last N weekdays up to today (IST)")
+    ap.add_argument("--recent", type=int, help="ingest the last N calendar days up to today (IST)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
     ap.add_argument("--purge-legacy", action="store_true",
@@ -169,9 +170,7 @@ def main(argv=None):
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if a.recent:
         end = today.isoformat()
-        start = (today - timedelta(days=a.recent * 2)).isoformat()
-        days = list(weekdays(start, end))[-a.recent:]
-        start = days[0]
+        start = (today - timedelta(days=a.recent - 1)).isoformat()
     else:
         end = a.end or a.start
         start = a.start

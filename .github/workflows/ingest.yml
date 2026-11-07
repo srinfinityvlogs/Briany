@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       start:
-        description: "Backfill start date YYYY-MM-DD (leave empty for the last 5 weekdays)"
+        description: "Backfill start date YYYY-MM-DD (leave empty for the last 7 days)"
         required: false
         default: ""
       end:
@@ -52,5 +52,5 @@ jobs:
           elif [ -n "$IN_START" ]; then
             python -m briany.ingest --start "$IN_START" --end "${IN_END:-$IN_START}"
           else
-            python -m briany.ingest --recent 5
+            python -m briany.ingest --recent 7
           fi
