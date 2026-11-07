@@ -1,6 +1,6 @@
 import pytest
 
-from briany.ingest import backfill, ingest_day, weekdays
+from briany.ingest import backfill, ingest_day, redis_url_problem, weekdays
 from briany.marketdata import DataError
 from briany.nsefiles import FetchError
 from briany.store import MemoryStore
@@ -84,3 +84,18 @@ def test_backfill_stops_on_block():
     with pytest.raises(FetchError):
         backfill(MemoryStore(), "2026-11-06", "2026-11-10", fetch=fake_fetch(files),
                  sleep=NOSLEEP, log=lambda *_: None)
+
+
+def test_redis_url_problem_hints_never_echo_the_value():
+    assert redis_url_problem("rediss://default:pw@host:6379") is None
+    assert redis_url_problem("redis://localhost:6379") is None
+    cases = {
+        "https://abc.upstash.io": "REST",
+        "redis-cli --tls -u rediss://default:SECRETPW@h:6379": "spaces",
+        '"rediss://default:SECRETPW@h:6379"': "quote",
+        "REDIS_URL=rediss://default:SECRETPW@h:6379": "NAME=",
+        "SECRETPW@host.upstash.io": "host and a password",
+    }
+    for value, word in cases.items():
+        msg = redis_url_problem(value)
+        assert word in msg and "SECRETPW" not in msg and "upstash" not in msg

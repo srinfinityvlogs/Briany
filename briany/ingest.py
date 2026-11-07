@@ -17,6 +17,24 @@ from briany.marketdata import DataError, parse_prices
 from briany.nsefiles import FetchError, fetch_bhavcopy
 
 
+def redis_url_problem(url: str):
+    """None if the URL looks usable, else a hint. Never echoes the value (it holds a password)."""
+    if url.startswith(("redis://", "rediss://")):
+        return None
+    if url.startswith(("http://", "https://")):
+        hint = "it looks like a REST (https://) URL; use the connection string starting with rediss://"
+    elif " " in url:
+        hint = "it contains spaces (a whole command pasted?); paste only the rediss://... string"
+    elif url[:1] in ("'", '"'):
+        hint = "it starts with a quote character; paste it without quotes"
+    elif url.upper().startswith(("REDIS_URL=", "KV_REDIS_URL=")):
+        hint = "remove the NAME= prefix; the value must start with rediss://"
+    else:
+        hint = ("it does not start with redis:// or rediss://. If you only have a host and a "
+                "password, build rediss://default:PASSWORD@HOST:6379")
+    return f"REDIS_URL is set but invalid: {hint}. (value not shown)"
+
+
 def weekdays(start: str, end: str):
     d, last = Date.fromisoformat(start), Date.fromisoformat(end)
     while d <= last:
@@ -70,6 +88,9 @@ def main(argv=None):
     url = Settings.from_env().redis_url
     if not url:
         sys.exit("REDIS_URL (or KV_REDIS_URL) is not set")
+    problem = redis_url_problem(url)
+    if problem:
+        sys.exit(problem)
     import redis
     from briany.store import RedisStore
     store = RedisStore(redis.Redis.from_url(url, decode_responses=True, socket_timeout=15))
