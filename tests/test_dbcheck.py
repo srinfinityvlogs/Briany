@@ -45,3 +45,12 @@ def test_run_check_reports_weekend_sessions_and_chain_audit():
     assert "weekend sessions stored (1): 2026-11-08" in text
     assert "chain audit over 4 day pairs: 1 day(s) with breaks" in text
     assert "2026-11-06: 1" in text
+
+
+def test_run_check_lists_large_one_day_moves():
+    s = store_with_known(adjusted_symbol=True)     # SPLIT closes 100 -> 52 on 2026-11-06
+    lines = []
+    run_check(s, out=lines.append)
+    text = "\n".join(lines)
+    assert "large one-day moves" in text and "1 total" in text
+    assert "2026-11-06 SPLIT: 100.0 -> 52.0 (-48.0%)" in text

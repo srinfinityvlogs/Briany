@@ -4,6 +4,8 @@ from datetime import date, timedelta
 from briany.marketdata import PREV_CLOSE_TOLERANCE, daily_move, period_return, period_start
 
 # Reliance closes copied from NSE end-of-day files you downloaded yourself (Nov 2026).
+BIG_MOVE_PCT = 30.0   # candidate splits/bonuses and uncapped movers; NOT proof of anything
+
 KNOWN_CLOSES = {"RELIANCE": {"2026-11-03": 1307.90, "2026-11-04": 1311.00,
                              "2026-11-05": 1313.40, "2026-11-06": 1320.00}}
 
@@ -55,13 +57,28 @@ def run_check(store, out=print) -> bool:
         sample = chain_breaks(store, days[-1], days[-2])[:8]
         out("sample (symbol, prior close, stated previous close): " + "; ".join(f"{s} {a} -> {b}" for s, a, b in sample))
 
-    audit = []
+    audit, moves = [], []
     for prior, day in zip(days, days[1:]):
-        n = len(chain_breaks(store, day, prior))
+        rows, prows, n = store.get_day(day), store.get_day(prior), 0
+        for sym, row in rows.items():
+            p = prows.get(sym)
+            if not p:
+                continue
+            if row.prev_close and abs(row.prev_close - p.close) > PREV_CLOSE_TOLERANCE:
+                n += 1
+            if p.close > 0:
+                pct = (row.close - p.close) / p.close * 100
+                if abs(pct) >= BIG_MOVE_PCT:
+                    moves.append((abs(pct), day, sym, p.close, row.close, round(pct, 1)))
         if n:
             audit.append((day, n))
     out(f"chain audit over {max(len(days) - 1, 0)} day pairs: {len(audit)} day(s) with breaks")
     out("days with breaks (date: symbols): " + ", ".join(f"{d}: {n}" for d, n in audit[:30]))
+    moves.sort(reverse=True)
+    out(f"large one-day moves (|change| >= {BIG_MOVE_PCT:g}% vs prior stored close): {len(moves)} total; "
+        f"largest {min(len(moves), 25)}:")
+    for _, day, sym, a, b, pct in moves[:25]:
+        out(f"  {day} {sym}: {a} -> {b} ({pct}%)")
 
     m = daily_move(store, "RELIANCE")
     out(f"RELIANCE daily move: {m.status} {m.date} close {m.close} prev {m.prev_close} pct {m.pct} chain_ok {m.prev_matches_store}")
