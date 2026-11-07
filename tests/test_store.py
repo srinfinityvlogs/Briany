@@ -81,3 +81,14 @@ def test_all_days_and_get_day(store):
     assert store.all_days() == ["2026-11-03", "2026-11-05"]
     assert store.get_day("2026-11-03") == {"A": PriceRow(1.0, 1.0, 5)}
     assert store.get_day("2026-11-04") == {}
+
+
+def test_prune_before_removes_only_older_days_with_cap(store):
+    for d in ("2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"):
+        store.put_day(d, {"A": PriceRow(1.0)})
+    assert store.prune_before("2026-01-07", max_days=1) == ["2026-01-05"]      # cap respected
+    assert store.prune_before("2026-01-07") == ["2026-01-06"]                  # strictly before
+    assert store.prune_before("2026-01-07") == []                              # idempotent
+    assert store.all_days() == ["2026-01-07", "2026-01-08"]
+    assert store.get_row("2026-01-05", "A") is None and not store.has_day("2026-01-06")
+    assert store.get_row("2026-01-07", "A") == PriceRow(1.0)

@@ -55,6 +55,13 @@ class MemoryStore:
     def all_days(self):
         return sorted(self.days)
 
+    def prune_before(self, cutoff, max_days=40):
+        """Delete stored days strictly before `cutoff` (oldest first, at most max_days)."""
+        old = sorted(d for d in self.days if d < cutoff)[:max_days]
+        for d in old:
+            del self.days[d]
+        return old
+
     def get_day(self, day):
         return dict(self.days.get(day, {}))
 
@@ -131,6 +138,20 @@ class RedisStore:
 
     def all_days(self):
         return list(self.r.zrange(DAYS_KEY, 0, -1))
+
+    def prune_before(self, cutoff, max_days=40):
+        """Delete stored days strictly before `cutoff` (oldest first, at most max_days).
+        The index entry goes first, so no day is ever listed without its data."""
+        old = self.r.zrangebyscore(DAYS_KEY, "-inf", f"({_score(cutoff)}", start=0, num=max_days)
+        if not old:
+            return []
+        pipe = self.r.pipeline(transaction=False)
+        pipe.zrem(DAYS_KEY, *old)
+        pipe.delete(*[f"{DAY_PREFIX}{d}" for d in old])
+        pipe.execute()
+        for d in old:
+            self._cache.pop(d, None)
+        return list(old)
 
     def get_day(self, day):
         return dict(self._load(day))

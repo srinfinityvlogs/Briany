@@ -1,6 +1,6 @@
 import pytest
 
-from briany.ingest import (backfill, ingest_day, memory_report, redis_url_problem,
+from briany.ingest import (backfill, ingest_day, memory_report, prune_history, redis_url_problem,
                            redis_url_structure_problem, weekdays)
 from briany.marketdata import DataError
 from briany.nsefiles import FetchError
@@ -134,3 +134,23 @@ def test_memory_report_falls_back_to_configured_cap():
             return {"used_memory": 2_400_000, "maxmemory": 0}
     assert memory_report(NoLimit()) == (2_400_000, 0)
     assert memory_report(NoLimit(), 30) == (2_400_000, 30_000_000)
+
+
+def test_prune_history_uses_latest_stored_day_not_the_clock():
+    from briany.marketdata import PriceRow
+    s = MemoryStore()
+    for d in ("2025-01-02", "2025-10-01", "2026-01-02", "2026-02-06"):
+        s.put_day(d, {"A": PriceRow(1.0)})
+    # latest = 2026-02-06; 380 days earlier = 2025-01-22 -> only 2025-01-02 is older
+    assert prune_history(s, 380) == ["2025-01-02"]
+    assert s.all_days() == ["2025-10-01", "2026-01-02", "2026-02-06"]
+    assert prune_history(MemoryStore(), 380) == []
+
+
+def test_prune_history_never_exceeds_per_run_cap():
+    from briany.marketdata import PriceRow
+    s = MemoryStore()
+    for i in range(60):
+        s.put_day(f"2024-01-{i % 28 + 1:02d}" if i < 28 else f"2024-02-{i - 27:02d}", {"A": PriceRow(1.0)})
+    s.put_day("2026-02-06", {"A": PriceRow(1.0)})
+    assert len(prune_history(s, 380, max_per_run=10)) == 10

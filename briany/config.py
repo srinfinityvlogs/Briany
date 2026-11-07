@@ -39,6 +39,16 @@ def _float(env: dict, name: str, default: float) -> float:
         raise ConfigError(f"{name} must be a number, got {raw!r}") from e
 
 
+MIN_RETENTION_DAYS = 370   # a 1-year return needs ~365 days plus holiday slack
+
+
+def _retention(env: dict) -> int:
+    days = int(_float(env, "PRICE_RETENTION_DAYS", 380))
+    if days < MIN_RETENTION_DAYS:
+        raise ConfigError(f"PRICE_RETENTION_DAYS must be at least {MIN_RETENTION_DAYS}, got {days}")
+    return days
+
+
 def _id_set(env: dict, name: str) -> frozenset[int]:
     raw = (env.get(name) or "").strip()
     out = set()
@@ -64,6 +74,7 @@ class Settings:
     allowed_telegram_ids: frozenset = field(default_factory=frozenset)
     nse_min_interval_seconds: float = 1.0       # throttle between NSE calls
     redis_max_memory_mb: float = 0.0            # Redis plan cap; 0 = unknown (Upstash does not report it)
+    price_retention_days: int = 380             # calendar days of price history to keep (min 370)
     market: str = "IN"
     timezone: str = "Asia/Kolkata"
     log_level: str = "INFO"
@@ -82,6 +93,7 @@ class Settings:
             allowed_telegram_ids=_id_set(env, "ALLOWED_TELEGRAM_IDS"),
             nse_min_interval_seconds=_float(env, "NSE_MIN_INTERVAL_SECONDS", 1.0),
             redis_max_memory_mb=_float(env, "REDIS_MAX_MEMORY_MB", 0.0),
+            price_retention_days=_retention(env),
             market=_first(env, ("MARKET",)) or "IN",
             timezone=_first(env, ("TIMEZONE",)) or "Asia/Kolkata",
             log_level=(_first(env, ("LOG_LEVEL",)) or "INFO").upper(),

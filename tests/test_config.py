@@ -58,3 +58,10 @@ def test_redis_memory_cap_setting():
     assert Settings.from_env({**FULL, "REDIS_MAX_MEMORY_MB": "30"}).redis_max_memory_mb == 30.0
     with pytest.raises(ConfigError):
         Settings.from_env({**FULL, "REDIS_MAX_MEMORY_MB": "lots"})
+
+
+def test_retention_setting_default_and_floor():
+    assert Settings.from_env(FULL).price_retention_days == 380
+    assert Settings.from_env({**FULL, "PRICE_RETENTION_DAYS": "400"}).price_retention_days == 400
+    with pytest.raises(ConfigError):
+        Settings.from_env({**FULL, "PRICE_RETENTION_DAYS": "200"})

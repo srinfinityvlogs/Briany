@@ -64,6 +64,15 @@ def memory_report(client, configured_max_mb: float = 0.0):
     return used, limit
 
 
+def prune_history(store, keep_days: int, max_per_run: int = 40):
+    """Drop days older than keep_days, measured from the latest stored day (not the clock)."""
+    latest = store.latest_day()
+    if latest is None:
+        return []
+    cutoff = (Date.fromisoformat(latest) - timedelta(days=keep_days)).isoformat()
+    return store.prune_before(cutoff, max_per_run)
+
+
 def weekdays(start: str, end: str):
     d, last = Date.fromisoformat(start), Date.fromisoformat(end)
     while d <= last:
@@ -170,6 +179,10 @@ def main(argv=None):
             sys.exit("give --recent N, or --start (and optionally --end)")
     counts = backfill(store, start, end, force=a.force)
     print("summary:", dict(counts), "| latest stored day:", store.latest_day())
+    if a.recent:                       # retention runs only in the scheduled job
+        removed = prune_history(store, settings.price_retention_days)
+        print(f"pruned {len(removed)} day(s) older than {settings.price_retention_days} days"
+              + (f": {removed[0]} .. {removed[-1]}" if removed else ""))
 
 
 if __name__ == "__main__":
