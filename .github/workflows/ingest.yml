@@ -13,6 +13,10 @@ on:
         description: "Backfill end date YYYY-MM-DD (empty = same as start)"
         required: false
         default: ""
+      check:
+        description: "Type yes for a read-only report on what is stored (instead of ingesting)"
+        required: false
+        default: "no"
       purge_legacy:
         description: "One-time cleanup of the old px:* keys (type yes to run it instead of ingesting)"
         required: false
@@ -38,8 +42,12 @@ jobs:
           IN_START: ${{ github.event.inputs.start }}
           IN_END: ${{ github.event.inputs.end }}
           IN_PURGE: ${{ github.event.inputs.purge_legacy }}
+          IN_CHECK: ${{ github.event.inputs.check }}
+          REDIS_MAX_MEMORY_MB: "30"     # Upstash free plan via Vercel; the server does not report it
         run: |
-          if [ "$IN_PURGE" = "yes" ]; then
+          if [ "$IN_CHECK" = "yes" ]; then
+            python -m briany.ingest --check
+          elif [ "$IN_PURGE" = "yes" ]; then
             python -m briany.ingest --purge-legacy
           elif [ -n "$IN_START" ]; then
             python -m briany.ingest --start "$IN_START" --end "${IN_END:-$IN_START}"

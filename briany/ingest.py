@@ -51,13 +51,17 @@ def redis_url_structure_problem(url: str):
     return None
 
 
-def memory_report(client):
-    """(used_bytes, max_bytes) or None if the server does not say. Numbers only, no secrets."""
+def memory_report(client, configured_max_mb: float = 0.0):
+    """(used_bytes, max_bytes) or None if the server does not say. Numbers only, no secrets.
+    Upstash reports no maxmemory, so fall back to the configured plan cap."""
     try:
         info = client.info("memory")
-        return int(info.get("used_memory", 0)), int(info.get("maxmemory", 0))
+        used, limit = int(info.get("used_memory", 0)), int(info.get("maxmemory", 0))
     except Exception:  # noqa: BLE001
         return None
+    if not limit and configured_max_mb:
+        limit = int(configured_max_mb * 1_000_000)
+    return used, limit
 
 
 def weekdays(start: str, end: str):
@@ -101,18 +105,11 @@ def backfill(store, start, end, fetch=fetch_bhavcopy, force=False,
     return counts
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--start")
-    ap.add_argument("--end")
-    ap.add_argument("--recent", type=int, help="ingest the last N weekdays up to today (IST)")
-    ap.add_argument("--force", action="store_true")
-    ap.add_argument("--purge-legacy", action="store_true",
-                    help="delete the old px:* keys (one-time cleanup), then exit")
-    a = ap.parse_args(argv)
-
+def connect():
+    """Validate REDIS_URL, connect, ping. Returns (client, store, settings). Never prints the URL."""
     from briany.config import Settings
-    url = Settings.from_env().redis_url
+    settings = Settings.from_env()
+    url = settings.redis_url
     if not url:
         sys.exit("REDIS_URL (or KV_REDIS_URL) is not set")
     problem = redis_url_problem(url) or redis_url_structure_problem(url)
@@ -127,15 +124,33 @@ def main(argv=None):
         sys.exit(f"Could not connect to Redis ({type(e).__name__}). Check host, port and password "
                  "in REDIS_URL. Details are hidden because they can contain the secret.")
     store = RedisStore(client)
-    mem = memory_report(client)
+    return client, store, settings
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--start")
+    ap.add_argument("--end")
+    ap.add_argument("--recent", type=int, help="ingest the last N weekdays up to today (IST)")
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
+    ap.add_argument("--purge-legacy", action="store_true",
+                    help="delete the old px:* keys (one-time cleanup), then exit")
+    a = ap.parse_args(argv)
+
+    client, store, settings = connect()
+    mem = memory_report(client, settings.redis_max_memory_mb)
     if mem:
         used, limit = mem
         print(f"redis memory: {used / 1e6:.1f} MB used of "
               f"{limit / 1e6:.1f} MB" if limit else f"redis memory: {used / 1e6:.1f} MB used (no limit reported)")
+    if a.check:
+        from briany.dbcheck import run_check
+        sys.exit(0 if run_check(store) else 1)
     if a.purge_legacy:
         from briany.store import purge_legacy
         print("removed legacy keys:", purge_legacy(client))
-        mem = memory_report(client)
+        mem = memory_report(client, settings.redis_max_memory_mb)
         if mem:
             print(f"redis memory after cleanup: {mem[0] / 1e6:.1f} MB used")
         return

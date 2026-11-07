@@ -126,3 +126,11 @@ def test_memory_report_handles_unsupported_servers():
             raise RuntimeError("INFO not supported")
     assert memory_report(Ok()) == (5_000_000, 30_000_000)
     assert memory_report(Broken()) is None
+
+
+def test_memory_report_falls_back_to_configured_cap():
+    class NoLimit:
+        def info(self, section):
+            return {"used_memory": 2_400_000, "maxmemory": 0}
+    assert memory_report(NoLimit()) == (2_400_000, 0)
+    assert memory_report(NoLimit(), 30) == (2_400_000, 30_000_000)

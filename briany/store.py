@@ -52,6 +52,12 @@ class MemoryStore:
     def latest_day(self):
         return max(self.days) if self.days else None
 
+    def all_days(self):
+        return sorted(self.days)
+
+    def get_day(self, day):
+        return dict(self.days.get(day, {}))
+
     def earliest_day(self):
         return min(self.days) if self.days else None
 
@@ -122,6 +128,12 @@ class RedisStore:
     def latest_day(self):
         res = self.r.zrevrange(DAYS_KEY, 0, 0)
         return res[0] if res else None
+
+    def all_days(self):
+        return list(self.r.zrange(DAYS_KEY, 0, -1))
+
+    def get_day(self, day):
+        return dict(self._load(day))
 
     def earliest_day(self):
         res = self.r.zrange(DAYS_KEY, 0, 0)

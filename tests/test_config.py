@@ -51,3 +51,10 @@ def test_logs_never_contain_secrets(caplog):
     with caplog.at_level(logging.INFO):
         log.info("token is %s", FULL["TELEGRAM_BOT_TOKEN"])
     assert FULL["TELEGRAM_BOT_TOKEN"] not in caplog.text
+
+
+def test_redis_memory_cap_setting():
+    assert Settings.from_env(FULL).redis_max_memory_mb == 0.0
+    assert Settings.from_env({**FULL, "REDIS_MAX_MEMORY_MB": "30"}).redis_max_memory_mb == 30.0
+    with pytest.raises(ConfigError):
+        Settings.from_env({**FULL, "REDIS_MAX_MEMORY_MB": "lots"})

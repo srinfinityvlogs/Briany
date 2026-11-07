@@ -63,6 +63,7 @@ class Settings:
     groq_model: str = "openai/gpt-oss-120b"
     allowed_telegram_ids: frozenset = field(default_factory=frozenset)
     nse_min_interval_seconds: float = 1.0       # throttle between NSE calls
+    redis_max_memory_mb: float = 0.0            # Redis plan cap; 0 = unknown (Upstash does not report it)
     market: str = "IN"
     timezone: str = "Asia/Kolkata"
     log_level: str = "INFO"
@@ -80,6 +81,7 @@ class Settings:
             groq_model=_first(env, ("GROQ_MODEL",)) or "openai/gpt-oss-120b",
             allowed_telegram_ids=_id_set(env, "ALLOWED_TELEGRAM_IDS"),
             nse_min_interval_seconds=_float(env, "NSE_MIN_INTERVAL_SECONDS", 1.0),
+            redis_max_memory_mb=_float(env, "REDIS_MAX_MEMORY_MB", 0.0),
             market=_first(env, ("MARKET",)) or "IN",
             timezone=_first(env, ("TIMEZONE",)) or "Asia/Kolkata",
             log_level=(_first(env, ("LOG_LEVEL",)) or "INFO").upper(),

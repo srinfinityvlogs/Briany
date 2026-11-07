@@ -73,3 +73,11 @@ def test_purge_legacy_removes_only_old_px_keys():
     assert purge_legacy(r) == 251
     assert sorted(r.keys("*")) == ["pxz:2026-01-02", "pxz:days", "spike:ping"]
     assert purge_legacy(r) == 0
+
+
+def test_all_days_and_get_day(store):
+    store.put_day("2026-11-05", {"B": PriceRow(2.0)})
+    store.put_day("2026-11-03", {"A": PriceRow(1.0, 1.0, 5)})
+    assert store.all_days() == ["2026-11-03", "2026-11-05"]
+    assert store.get_day("2026-11-03") == {"A": PriceRow(1.0, 1.0, 5)}
+    assert store.get_day("2026-11-04") == {}
