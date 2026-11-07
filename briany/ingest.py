@@ -51,6 +51,15 @@ def redis_url_structure_problem(url: str):
     return None
 
 
+def memory_report(client):
+    """(used_bytes, max_bytes) or None if the server does not say. Numbers only, no secrets."""
+    try:
+        info = client.info("memory")
+        return int(info.get("used_memory", 0)), int(info.get("maxmemory", 0))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def weekdays(start: str, end: str):
     d, last = Date.fromisoformat(start), Date.fromisoformat(end)
     while d <= last:
@@ -98,6 +107,8 @@ def main(argv=None):
     ap.add_argument("--end")
     ap.add_argument("--recent", type=int, help="ingest the last N weekdays up to today (IST)")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--purge-legacy", action="store_true",
+                    help="delete the old px:* keys (one-time cleanup), then exit")
     a = ap.parse_args(argv)
 
     from briany.config import Settings
@@ -116,6 +127,20 @@ def main(argv=None):
         sys.exit(f"Could not connect to Redis ({type(e).__name__}). Check host, port and password "
                  "in REDIS_URL. Details are hidden because they can contain the secret.")
     store = RedisStore(client)
+    mem = memory_report(client)
+    if mem:
+        used, limit = mem
+        print(f"redis memory: {used / 1e6:.1f} MB used of "
+              f"{limit / 1e6:.1f} MB" if limit else f"redis memory: {used / 1e6:.1f} MB used (no limit reported)")
+    if a.purge_legacy:
+        from briany.store import purge_legacy
+        print("removed legacy keys:", purge_legacy(client))
+        mem = memory_report(client)
+        if mem:
+            print(f"redis memory after cleanup: {mem[0] / 1e6:.1f} MB used")
+        return
+    if mem and mem[1] and mem[0] > 0.9 * mem[1]:
+        sys.exit("Redis is more than 90% full; refusing to write. Run the legacy cleanup or free space.")
 
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if a.recent:

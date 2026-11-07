@@ -13,6 +13,14 @@ on:
         description: "Backfill end date YYYY-MM-DD (empty = same as start)"
         required: false
         default: ""
+      purge_legacy:
+        description: "One-time cleanup of the old px:* keys (type yes to run it instead of ingesting)"
+        required: false
+        default: "no"
+
+concurrency:
+  group: ingest-prices
+  cancel-in-progress: false
 
 jobs:
   ingest:
@@ -29,8 +37,11 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           IN_START: ${{ github.event.inputs.start }}
           IN_END: ${{ github.event.inputs.end }}
+          IN_PURGE: ${{ github.event.inputs.purge_legacy }}
         run: |
-          if [ -n "$IN_START" ]; then
+          if [ "$IN_PURGE" = "yes" ]; then
+            python -m briany.ingest --purge-legacy
+          elif [ -n "$IN_START" ]; then
             python -m briany.ingest --start "$IN_START" --end "${IN_END:-$IN_START}"
           else
             python -m briany.ingest --recent 5

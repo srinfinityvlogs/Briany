@@ -1,14 +1,21 @@
 """Daily price storage. MemoryStore for tests/local, RedisStore for production.
 
-Redis layout: hash px:<date> (symbol -> "close|prev_close|volume") and the sorted
-set px:days (member = date, score = yyyymmdd) listing days that are fully stored.
-The day is added to px:days last, so a half-written day is never visible.
+Redis layout: one compressed string per day, pxz:<date> (zlib + base64 of lines
+"SYMBOL|close|prev_close|volume"), and the sorted set pxz:days (member = date,
+score = yyyymmdd) listing fully stored days. The day is added to pxz:days last, so a
+half-written day is never visible. (An earlier layout used one hash per day, px:<date>,
+which used far too much memory; purge_legacy() removes it.)
 """
 from __future__ import annotations
 
+import base64
+import zlib
+
 from briany.marketdata import PriceRow
 
-DAYS_KEY = "px:days"
+DAYS_KEY = "pxz:days"
+DAY_PREFIX = "pxz:"
+LEGACY_PATTERN = "px:*"
 
 
 def encode(row: PriceRow) -> str:
@@ -49,27 +56,64 @@ class MemoryStore:
         return min(self.days) if self.days else None
 
 
+def pack_day(rows) -> str:
+    lines = [f"{sym}|{encode(row)}" for sym, row in rows.items()]
+    return base64.b64encode(zlib.compress("\n".join(lines).encode("utf-8"), 9)).decode("ascii")
+
+
+def unpack_day(blob: str) -> dict:
+    raw = zlib.decompress(base64.b64decode(blob)).decode("utf-8")
+    out = {}
+    for line in raw.split("\n"):
+        sym, rest = line.split("|", 1)
+        out[sym] = decode(rest)
+    return out
+
+
+def purge_legacy(client, batch: int = 100) -> int:
+    """Delete the old per-day hashes (px:*) and index. Returns the number of keys removed."""
+    removed, pending = 0, []
+    for key in client.scan_iter(match=LEGACY_PATTERN, count=500):
+        pending.append(key)
+        if len(pending) >= batch:
+            removed += client.delete(*pending)
+            pending = []
+    if pending:
+        removed += client.delete(*pending)
+    return removed
+
+
 class RedisStore:
-    def __init__(self, client, chunk: int = 2000):
+    CACHE_DAYS = 32
+
+    def __init__(self, client):
         self.r = client            # redis.Redis created with decode_responses=True
-        self.chunk = chunk
+        self._cache: dict = {}
 
     def put_day(self, day, rows):
-        key = f"px:{day}"
         pipe = self.r.pipeline(transaction=False)
-        pipe.delete(key)
-        items = list(rows.items())
-        for i in range(0, len(items), self.chunk):
-            pipe.hset(key, mapping={s: encode(r) for s, r in items[i:i + self.chunk]})
-        pipe.zadd(DAYS_KEY, {day: _score(day)})
+        pipe.set(f"{DAY_PREFIX}{day}", pack_day(rows))
+        pipe.zadd(DAYS_KEY, {day: _score(day)})      # last: only complete days become visible
         pipe.execute()
+        self._cache.pop(day, None)
 
     def has_day(self, day):
         return self.r.zscore(DAYS_KEY, day) is not None
 
+    def _load(self, day):
+        if day in self._cache:
+            return self._cache[day]
+        blob = self.r.get(f"{DAY_PREFIX}{day}")
+        if not blob:
+            return {}
+        rows = unpack_day(blob)
+        if len(self._cache) >= self.CACHE_DAYS:
+            self._cache.pop(next(iter(self._cache)))
+        self._cache[day] = rows
+        return rows
+
     def get_row(self, day, symbol):
-        v = self.r.hget(f"px:{day}", symbol)
-        return decode(v) if v else None
+        return self._load(day).get(symbol)
 
     def day_on_or_before(self, day):
         res = self.r.zrevrangebyscore(DAYS_KEY, _score(day), "-inf", start=0, num=1)

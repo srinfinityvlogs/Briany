@@ -2,14 +2,14 @@ import fakeredis
 import pytest
 
 from briany.marketdata import PriceRow
-from briany.store import MemoryStore, RedisStore, decode, encode
+from briany.store import MemoryStore, RedisStore, decode, encode, pack_day, purge_legacy, unpack_day
 
 
 @pytest.fixture(params=["memory", "redis"])
 def store(request):
     if request.param == "memory":
         return MemoryStore()
-    return RedisStore(fakeredis.FakeRedis(decode_responses=True), chunk=1000)
+    return RedisStore(fakeredis.FakeRedis(decode_responses=True))
 
 
 def test_roundtrip_and_navigation(store):
@@ -38,7 +38,7 @@ def test_rewriting_a_day_replaces_it(store):
     assert store.get_row("2026-11-03", "OLD") is None
 
 
-def test_large_day_is_chunked(store):
+def test_large_day_roundtrips(store):
     rows = {f"S{i:05d}": PriceRow(100.0 + i, 99.0 + i, i) for i in range(3500)}
     store.put_day("2026-11-04", rows)
     assert store.get_row("2026-11-04", "S03499") == rows["S03499"]
@@ -48,3 +48,28 @@ def test_large_day_is_chunked(store):
 def test_encode_decode_keeps_exact_values():
     for row in (PriceRow(1311.0, 1307.9, 19451679), PriceRow(0.05), PriceRow(7.0, None, 3)):
         assert decode(encode(row)) == row
+
+
+def test_packed_day_is_compact_and_lossless():
+    import random
+    random.seed(7)
+    rows = {}
+    for i in range(3443):
+        c = round(random.uniform(5, 5000), 2)
+        rows[f"SYM{i:04d}"] = PriceRow(c, round(c * random.uniform(0.97, 1.03), 2), random.randint(100, 9_000_000))
+    blob = pack_day(rows)
+    assert unpack_day(blob) == rows
+    assert len(blob) < 110_000          # per day; the old hash layout needed several times this
+
+
+def test_purge_legacy_removes_only_old_px_keys():
+    r = fakeredis.FakeRedis(decode_responses=True)
+    for i in range(250):
+        r.hset(f"px:2026-01-{i:03d}", mapping={"A": "1|1|1"})
+    r.zadd("px:days", {"2026-01-01": 20260101})
+    r.set("pxz:2026-01-02", "keep-me")
+    r.zadd("pxz:days", {"2026-01-02": 20260102})
+    r.set("spike:ping", "keep-me-too")
+    assert purge_legacy(r) == 251
+    assert sorted(r.keys("*")) == ["pxz:2026-01-02", "pxz:days", "spike:ping"]
+    assert purge_legacy(r) == 0

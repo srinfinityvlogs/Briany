@@ -1,6 +1,6 @@
 import pytest
 
-from briany.ingest import (backfill, ingest_day, redis_url_problem,
+from briany.ingest import (backfill, ingest_day, memory_report, redis_url_problem,
                            redis_url_structure_problem, weekdays)
 from briany.marketdata import DataError
 from briany.nsefiles import FetchError
@@ -114,3 +114,15 @@ def test_structure_check_catches_missing_host_and_never_echoes():
     for value, word in bad.items():
         msg = redis_url_structure_problem(value)
         assert word in msg and "SECRETPW" not in msg
+
+
+def test_memory_report_handles_unsupported_servers():
+    class Ok:
+        def info(self, section):
+            return {"used_memory": 5_000_000, "maxmemory": 30_000_000}
+
+    class Broken:
+        def info(self, section):
+            raise RuntimeError("INFO not supported")
+    assert memory_report(Ok()) == (5_000_000, 30_000_000)
+    assert memory_report(Broken()) is None
