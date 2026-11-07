@@ -1,9 +1,10 @@
-.venv/
-results/
-__pycache__/
 .env
-.venv/
-results/
+.env.*
+!.env.example
 __pycache__/
-.env
+*.pyc
+.pytest_cache/
+.venv/
+.vercel/
+results/
 .DS_Store
