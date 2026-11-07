@@ -11,6 +11,7 @@ import sys
 import time
 from collections import Counter
 from datetime import date as Date, datetime, timedelta
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from briany.marketdata import DataError, parse_prices
@@ -33,6 +34,21 @@ def redis_url_problem(url: str):
         hint = ("it does not start with redis:// or rediss://. If you only have a host and a "
                 "password, build rediss://default:PASSWORD@HOST:6379")
     return f"REDIS_URL is set but invalid: {hint}. (value not shown)"
+
+
+def redis_url_structure_problem(url: str):
+    """Structural check so redis-py never raises an error that echoes the secret."""
+    shape = "expected redis[s]://default:PASSWORD@HOST:PORT"
+    parts = urlsplit(url)
+    if "@" not in parts.netloc:
+        return f"REDIS_URL is set but invalid: {shape}, but there is no @HOST:PORT part. (value not shown)"
+    try:
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        return f"REDIS_URL is set but invalid: the port is not a number; {shape}. (value not shown)"
+    if not host:
+        return f"REDIS_URL is set but invalid: the host is missing; {shape}. (value not shown)"
+    return None
 
 
 def weekdays(start: str, end: str):
@@ -88,12 +104,18 @@ def main(argv=None):
     url = Settings.from_env().redis_url
     if not url:
         sys.exit("REDIS_URL (or KV_REDIS_URL) is not set")
-    problem = redis_url_problem(url)
+    problem = redis_url_problem(url) or redis_url_structure_problem(url)
     if problem:
         sys.exit(problem)
     import redis
     from briany.store import RedisStore
-    store = RedisStore(redis.Redis.from_url(url, decode_responses=True, socket_timeout=15))
+    try:
+        client = redis.Redis.from_url(url, decode_responses=True, socket_timeout=15)
+        client.ping()
+    except Exception as e:  # noqa: BLE001 - library messages can contain the secret
+        sys.exit(f"Could not connect to Redis ({type(e).__name__}). Check host, port and password "
+                 "in REDIS_URL. Details are hidden because they can contain the secret.")
+    store = RedisStore(client)
 
     today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
     if a.recent:

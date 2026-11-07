@@ -1,6 +1,7 @@
 import pytest
 
-from briany.ingest import backfill, ingest_day, redis_url_problem, weekdays
+from briany.ingest import (backfill, ingest_day, redis_url_problem,
+                           redis_url_structure_problem, weekdays)
 from briany.marketdata import DataError
 from briany.nsefiles import FetchError
 from briany.store import MemoryStore
@@ -99,3 +100,17 @@ def test_redis_url_problem_hints_never_echo_the_value():
     for value, word in cases.items():
         msg = redis_url_problem(value)
         assert word in msg and "SECRETPW" not in msg and "upstash" not in msg
+
+
+def test_structure_check_catches_missing_host_and_never_echoes():
+    ok = "rediss://default:pw@host.example.com:6379"
+    assert redis_url_structure_problem(ok) is None
+    assert redis_url_structure_problem("redis://default:pw@host.example.com") is None   # default port
+    bad = {
+        "redis://default:SECRETPW": "no @HOST:PORT",                       # the real-world mistake
+        "redis://default:SECRETPW@host:notaport": "not a number",
+        "redis://default:SECRETPW@:6379": "host is missing",
+    }
+    for value, word in bad.items():
+        msg = redis_url_structure_problem(value)
+        assert word in msg and "SECRETPW" not in msg
