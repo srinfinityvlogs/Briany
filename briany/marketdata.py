@@ -1,0 +1,170 @@
+"""Prices from NSE end-of-day files: parsing, daily moves, period returns.
+
+Pure logic, no network. Every figure carries the file date it came from.
+Returns follow Option A: if a corporate action falls inside the window the
+result is a refusal with no number (closes are not adjusted for splits/bonuses).
+"""
+from __future__ import annotations
+
+import calendar
+import csv
+import io
+from dataclasses import dataclass
+from datetime import date as Date, timedelta
+
+from briany.symbols import ALLOWED_SERIES
+
+MAX_GAP_DAYS = 7          # nearest stored day may be at most this far from the target
+PREV_CLOSE_TOLERANCE = 0.005
+
+
+class DataError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class PriceRow:
+    close: float
+    prev_close: float | None = None
+    volume: int | None = None
+
+
+@dataclass(frozen=True)
+class CorporateAction:
+    ex_date: str          # ISO date
+    purpose: str
+
+
+@dataclass(frozen=True)
+class DailyMove:
+    status: str           # "ok" | "no_data"
+    symbol: str
+    date: str | None = None
+    close: float | None = None
+    prev_close: float | None = None
+    pct: float | None = None
+    prev_matches_store: bool | None = None   # None = prior day not stored
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class ReturnResult:
+    status: str           # "ok" | "no_data" | "insufficient_history" | "blocked_by_corporate_action"
+    symbol: str
+    pct: float | None = None
+    start_date: str | None = None
+    start_close: float | None = None
+    end_date: str | None = None
+    end_close: float | None = None
+    actions: tuple = ()
+    note: str = ""
+
+
+def _num(text) -> float | None:
+    try:
+        v = float((text or "").strip())
+        return v
+    except ValueError:
+        return None
+
+
+def parse_prices(text: str, expected_date: str | None = None):
+    """Parse NSE CM bhavcopy CSV text -> (iso_date, {symbol: PriceRow})."""
+    best: dict[str, tuple[float, PriceRow]] = {}
+    day = None
+    for r in csv.DictReader(io.StringIO(text)):
+        d = (r.get("TradDt") or "").strip()
+        if day is None:
+            day = d
+        elif d != day:
+            raise DataError(f"file mixes dates: {day} and {d}")
+        if r.get("SctySrs") not in ALLOWED_SERIES or not (r.get("TckrSymb") or "").strip():
+            continue
+        close = _num(r.get("ClsPric"))
+        if close is None or close <= 0:
+            continue
+        vol = _num(r.get("TtlTradgVol"))
+        row = PriceRow(close, _num(r.get("PrvsClsgPric")), int(vol) if vol is not None else None)
+        turnover = _num(r.get("TtlTrfVal")) or 0.0
+        sym = r["TckrSymb"].strip()
+        if sym not in best or turnover > best[sym][0]:
+            best[sym] = (turnover, row)
+    if not day:
+        raise DataError("empty file")
+    if expected_date and day != expected_date:
+        raise DataError(f"expected file for {expected_date} but it contains {day}")
+    return day, {s: row for s, (_, row) in best.items()}
+
+
+def _pct(new: float, old: float) -> float:
+    return round((new - old) / old * 100, 2)
+
+
+def daily_move(store, symbol: str, on: str | None = None) -> DailyMove:
+    """Move on the latest stored day (or the last stored day on/before `on`)."""
+    day = store.latest_day() if on is None else store.day_on_or_before(on)
+    if day is None:
+        return DailyMove("no_data", symbol, note="no price data stored")
+    row = store.get_row(day, symbol)
+    if row is None:
+        return DailyMove("no_data", symbol, date=day, note=f"{symbol} not in the {day} file")
+    if not row.prev_close:
+        return DailyMove("no_data", symbol, date=day, close=row.close,
+                         note="file has no previous close for this symbol")
+    prior = store.day_on_or_before((Date.fromisoformat(day) - timedelta(days=1)).isoformat())
+    matches = None
+    note = ""
+    if prior is not None:
+        prow = store.get_row(prior, symbol)
+        if prow is not None:
+            matches = abs(prow.close - row.prev_close) <= PREV_CLOSE_TOLERANCE
+            if not matches:
+                note = (f"NSE's previous close ({row.prev_close}) differs from the {prior} "
+                        f"close ({prow.close}); a corporate action adjustment is possible")
+    return DailyMove("ok", symbol, day, row.close, row.prev_close,
+                     _pct(row.close, row.prev_close), matches, note)
+
+
+def shift_months(d: Date, months: int) -> Date:
+    y, m = divmod(d.year * 12 + d.month - 1 - months, 12)
+    m += 1
+    return Date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def period_start(end: str, label: str) -> str | None:
+    """Target start date for labels 1w, 1m, 3m, 6m, 1y, 3y, 5y, ytd. None if unknown."""
+    e = Date.fromisoformat(end)
+    label = label.lower()
+    months = {"1m": 1, "3m": 3, "6m": 6, "1y": 12, "3y": 36, "5y": 60}
+    if label == "1w":
+        return (e - timedelta(days=7)).isoformat()
+    if label == "ytd":
+        return Date(e.year - 1, 12, 31).isoformat()
+    if label in months:
+        return shift_months(e, months[label]).isoformat()
+    return None
+
+
+def period_return(store, symbol: str, end: str, start_target: str, actions=()) -> ReturnResult:
+    end_day = store.day_on_or_before(end)
+    start_day = store.day_on_or_before(start_target)
+    earliest = store.earliest_day()
+    if end_day is None:
+        return ReturnResult("no_data", symbol, note="no price data stored")
+    if start_day is None or (Date.fromisoformat(start_target) - Date.fromisoformat(start_day)).days > MAX_GAP_DAYS:
+        return ReturnResult("insufficient_history", symbol, end_date=end_day,
+                            note=f"stored history starts {earliest}; need data near {start_target}")
+    if start_day == end_day:
+        return ReturnResult("no_data", symbol, start_date=start_day, end_date=end_day,
+                            note="start and end fall on the same trading day")
+    s, e = store.get_row(start_day, symbol), store.get_row(end_day, symbol)
+    if s is None or e is None:
+        missing = start_day if s is None else end_day
+        return ReturnResult("no_data", symbol, start_date=start_day, end_date=end_day,
+                            note=f"{symbol} not in the {missing} file")
+    hits = tuple(a for a in actions if start_day < a.ex_date <= end_day)
+    if hits:
+        return ReturnResult("blocked_by_corporate_action", symbol, start_date=start_day,
+                            end_date=end_day, actions=hits,
+                            note="closes are not adjusted for splits/bonuses, so no return is given")
+    return ReturnResult("ok", symbol, _pct(e.close, s.close), start_day, s.close, end_day, e.close)

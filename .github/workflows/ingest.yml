@@ -1,0 +1,37 @@
+name: ingest-prices
+
+on:
+  schedule:
+    - cron: "30 14 * * 1-5"      # 20:00 IST on weekdays; re-runs are safe
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "Backfill start date YYYY-MM-DD (leave empty for the last 5 weekdays)"
+        required: false
+        default: ""
+      end:
+        description: "Backfill end date YYYY-MM-DD (empty = same as start)"
+        required: false
+        default: ""
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Ingest end-of-day files
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          IN_START: ${{ github.event.inputs.start }}
+          IN_END: ${{ github.event.inputs.end }}
+        run: |
+          if [ -n "$IN_START" ]; then
+            python -m briany.ingest --start "$IN_START" --end "${IN_END:-$IN_START}"
+          else
+            python -m briany.ingest --recent 5
+          fi
