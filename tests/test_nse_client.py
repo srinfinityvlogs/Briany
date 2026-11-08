@@ -131,3 +131,24 @@ def test_redis_cache_roundtrip_with_ttl():
     assert cache.get("k") is None
     cache.set("k", [{"a": 1}], ttl=60)
     assert cache.get("k") == [{"a": 1}] and 0 < r.ttl("cache:k") <= 60
+
+
+def test_windowed_calendar_and_board_meeting_urls():
+    c, _ = client([b"[]", b"[]"])
+    c.event_calendar("RELIANCE", "2026-11-07", "2026-12-31")
+    c.board_meetings("RELIANCE", "2026-07-01", "2026-11-06")
+    assert c._open.calls == [
+        nse.BASE + "event-calendar?index=equities&symbol=RELIANCE&from_date=07-11-2026&to_date=31-12-2026",
+        nse.BASE + "corporate-board-meetings?index=equities&symbol=RELIANCE&from_date=01-07-2026&to_date=06-11-2026"]
+
+
+def test_next_results_returns_event_or_none_for_not_announced():
+    body = json.dumps([
+        {"symbol": "ABC", "company": "ABC", "purpose": "Buyback", "bm_desc": "x", "date": "12-Nov-2026"},
+        {"symbol": "ABC", "company": "ABC", "purpose": "Financial Results", "bm_desc": "x", "date": "20-Nov-2026"}]).encode()
+    c, _ = client([body])
+    ev = c.next_results("ABC", "2026-11-07")
+    assert ev.date == "2026-11-20" and ev.purpose == "Financial Results"
+    assert c._open.calls[0].endswith("from_date=07-11-2026&to_date=07-03-2027")         # 120-day horizon
+    c2, _ = client([b"[]"])
+    assert c2.next_results("ABC", "2026-11-07") is None

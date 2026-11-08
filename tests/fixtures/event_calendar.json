@@ -177,5 +177,43 @@
    "date": "13-Oct-2017"
   },
   "...[41 more items]"
- ]
+ ],
+ "tail": [
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter and half year ended September 30, 2025",
+   "date": "17-Oct-2025"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended December 31, 2025",
+   "date": "16-Jan-2026"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results/Dividend",
+   "bm_desc": "Pursuant to Regulation 29 and other applicable provisions of the Securities and Exchange Board of India (Listing Obligations and Disclosure Requirements) Regulations, 2015, please note that a meeting of the Board of Directors of the Company is scheduled to be held on Friday, April 24, 2026, inter al...[556 chars]",
+   "date": "24-Apr-2026"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended June 30, 2026",
+   "date": "17-Jul-2026"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results/Fund Raising",
+   "bm_desc": "The meeting of the Board of Directors of the Company is scheduled on October 30, 2026, inter alia, to consider and approve: a) the standalone and consolidated unaudited financial results of the Company for the quarter and half year ended September 30, 2026; andb) raising of funds by way of issuance ...[422 chars]",
+   "date": "30-Oct-2026"
+  }
+ ],
+ "total": 66
 }

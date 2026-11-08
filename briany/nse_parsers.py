@@ -192,6 +192,12 @@ def parse_board_meetings(data):
     return sorted(out, key=lambda m: m.meeting_date, reverse=True)
 
 
+def results_meeting_dates(meetings):
+    """Distinct dates of results-related board meetings, newest first. NSE lists a meeting
+    twice (intimation + purpose), so duplicates collapse here."""
+    return sorted({m.meeting_date for m in meetings if m.results_related}, reverse=True)
+
+
 @dataclass(frozen=True)
 class EventItem:
     symbol: str

@@ -1,0 +1,219 @@
+{
+ "url": "https://www.nseindia.com/api/event-calendar?index=equities&from_date=09-11-2026&to_date=20-11-2026",
+ "sample": [
+  {
+   "symbol": "MEDICO",
+   "company": "Medico Remedies Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "OLECTRA",
+   "company": "Olectra Greentech Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the unaudited financial results for the period ended September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "PARKHOSPS",
+   "company": "Park Medi World Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter and half year ended on September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "RMDRIP",
+   "company": "R M Drip and Sprinklers Systems Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "SVPGLOB",
+   "company": "SVP GLOBAL TEXTILES LIMITED",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "WHIRLPOOL",
+   "company": "Whirlpool of India Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "09-Nov-2026"
+  },
+  {
+   "symbol": "ARSSINFRA",
+   "company": "ARSS Infrastructure Projects Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "AVANTIFEED",
+   "company": "Avanti Feeds Limited",
+   "purpose": "Financial Results/Other business matters",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and other business matters",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "BAJFINANCE",
+   "company": "Bajaj Finance Limited",
+   "purpose": "Other business matters",
+   "bm_desc": "We wish to inform you that a meeting of the PI 2026- Special Committee of the Board of Directors of the Company is scheduled to be held on Tuesday, 10 November 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "COCHINSHIP",
+   "company": "Cochin Shipyard Limited",
+   "purpose": "Financial Results/Dividend",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and dividend",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "DREDGECORP",
+   "company": "Dredging Corporation of India Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "HIRECT",
+   "company": "Hirect Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "IIFL",
+   "company": "IIFL Finance Limited",
+   "purpose": "Fund Raising",
+   "bm_desc": "IIFL Finance Limited has informed the Exchanges regarding Board Meeting scheduled to be held on November 10, 2026 to consider and approve fund raising.",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "KALYANKJIL",
+   "company": "Kalyan Jewellers India Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "KUNDANMM",
+   "company": "Kundan Minerals and Metals Limited",
+   "purpose": "Financial Results/Other business matters",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and other business matters",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "LEEL",
+   "company": "LEEL Electricals Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "LFIC",
+   "company": "Lakshmi Finance & Industrial Corporation Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "MATRIMONY",
+   "company": "Matrimony.Com Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "MIDWESTLTD",
+   "company": "Midwest Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "MMTC",
+   "company": "MMTC Limited",
+   "purpose": "Financial Results/Other business matters",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and other business matters",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "MRF",
+   "company": "MRF Limited",
+   "purpose": "Financial Results/Dividend",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and interim dividend, if any.",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "PILANIINVS",
+   "company": "Pilani Investment and Industries Corporation Limited",
+   "purpose": "Financial Results/Other business matters",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026 and other business matters",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "QUADFUTURE",
+   "company": "Quadrant Future Tek Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To inter-alia consider and approve the Unaudited financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "RENTOMOJO",
+   "company": "Rentomojo Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  {
+   "symbol": "ROSSELLIND",
+   "company": "Rossell India Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "10-Nov-2026"
+  },
+  "...[599 more items]"
+ ],
+ "tail": [
+  {
+   "symbol": "XLENERGY",
+   "company": "XL Energy Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the Un-Audited financial results for the Quarter Ended and half year ended September 30, 2026, At The Monitoring Committee Meeting Scheduled On 14 November 2026.",
+   "date": "14-Nov-2026"
+  },
+  {
+   "symbol": "ZEEMEDIA",
+   "company": "Zee Media Corporation Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the Un-audited financial results for the period ended September 30, 2026",
+   "date": "14-Nov-2026"
+  },
+  {
+   "symbol": "SANDHAR",
+   "company": "Sandhar Technologies Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "16-Nov-2026"
+  },
+  {
+   "symbol": "TTL",
+   "company": "T T Limited",
+   "purpose": "Buyback",
+   "bm_desc": "Intimation of Board Meeting proposed to be helad on 16th November, 2026 to consider the proposal of Buyback of the Equity Shares of the Company.",
+   "date": "16-Nov-2026"
+  },
+  {
+   "symbol": "GVPTECH",
+   "company": "GVP Infotech Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider and approve the financial results for the period ended September 30, 2026",
+   "date": "18-Nov-2026"
+  }
+ ],
+ "total": 624
+}

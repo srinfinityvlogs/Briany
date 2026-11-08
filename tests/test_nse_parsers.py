@@ -15,6 +15,10 @@ def load(name):
     return json.loads((FIX / f"{name}.json").read_text())["sample"]
 
 
+def load_doc(name):
+    return json.loads((FIX / f"{name}.json").read_text())
+
+
 # ---------------------------------------------------------------- dates
 def test_parse_date_and_datetime():
     assert P.parse_date("05-Jun-2026") == "2026-06-05"
@@ -175,3 +179,39 @@ def test_daily_move_refuses_on_ex_date_but_not_for_dividends():
     s.put_day("2026-06-04", {"RELIANCE": PriceRow(1300.0, 1299.0)})
     s.put_day("2026-06-05", {"RELIANCE": PriceRow(1294.0, 1300.0)})            # ex-dividend day
     assert daily_move(s, "RELIANCE", "2026-06-05", actions=acts).status == "ok"
+
+
+# ---------------------------------------------------------------- round 2: windows and upcoming events
+def test_windowed_actions_for_one_symbol():
+    acts = P.parse_corporate_actions(load("corp_actions_symbol_dates"))
+    assert [(a.ex_date, a.kind) for a in acts] == [("2024-08-19", "dividend"), ("2024-10-28", "bonus"),
+                                                    ("2025-08-14", "dividend"), ("2026-06-05", "dividend")]
+    assert [b.ex_date for b in P.blockers(acts)] == ["2024-10-28"]
+    assert acts[2].detail == {"amount": 5.5}
+
+
+def test_each_board_meeting_appears_once_per_date():
+    bm = P.parse_board_meetings(load("board_meetings_dates"))
+    assert len(bm) == 4                                           # two records per meeting
+    assert P.results_meeting_dates(bm) == ["2026-10-30", "2026-07-17"]
+    assert P.results_meeting_dates([]) == []
+
+
+def test_event_calendar_tail_gives_latest_scheduled_results():
+    doc = load_doc("event_calendar")
+    assert doc["total"] == 66
+    events = P.parse_event_calendar(doc["tail"])
+    assert events[-1].date == "2026-10-30" and events[-1].purpose == "Financial Results/Fund Raising"
+    assert P.next_results_date(events, "2026-10-01").date == "2026-10-30"
+    assert P.next_results_date(events, "2026-11-07") is None      # nothing scheduled after today
+    assert P.parse_event_calendar(load("event_calendar_upcoming")) == []
+
+
+def test_all_company_upcoming_calendar_and_non_results_purposes():
+    doc = load_doc("event_calendar_all_upcoming")
+    events = P.parse_event_calendar(doc["sample"] + doc["tail"])
+    assert doc["total"] == 624 and len(events) >= 30
+    first = P.next_results_date(events, "2026-11-09")
+    assert first.date == "2026-11-09" and "result" in first.purpose.lower()
+    buyback = [e for e in events if e.purpose == "Buyback"]
+    assert buyback and P.next_results_date(buyback, "2026-11-09") is None

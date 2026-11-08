@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import date, timedelta
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -131,13 +132,21 @@ class NseClient:
         return self._wrap(P.parse_announcements,
                           self.get_json("corporate-announcements", params, TTL_ANNOUNCEMENTS), "announcements")
 
-    def board_meetings(self, symbol):
-        return self._wrap(P.parse_board_meetings, self.get_json(
-            "corporate-board-meetings", {"index": "equities", "symbol": symbol}, TTL_MEETINGS), "board meetings")
+    def board_meetings(self, symbol, start=None, end=None):
+        params = {"index": "equities", "symbol": symbol, **self._window(start, end)}
+        return self._wrap(P.parse_board_meetings,
+                          self.get_json("corporate-board-meetings", params, TTL_MEETINGS), "board meetings")
 
-    def event_calendar(self, symbol):
-        return self._wrap(P.parse_event_calendar, self.get_json(
-            "event-calendar", {"index": "equities", "symbol": symbol}, TTL_CALENDAR), "event calendar")
+    def event_calendar(self, symbol=None, start=None, end=None):
+        params = {"index": "equities", **({"symbol": symbol} if symbol else {}), **self._window(start, end)}
+        return self._wrap(P.parse_event_calendar,
+                          self.get_json("event-calendar", params, TTL_CALENDAR), "event calendar")
+
+    def next_results(self, symbol, today, horizon_days=120):
+        """Next scheduled results meeting on/after `today` (ISO), or None if NSE lists none.
+        None means 'not announced', never 'no results'."""
+        end = (date.fromisoformat(today) + timedelta(days=horizon_days)).isoformat()
+        return P.next_results_date(self.event_calendar(symbol, today, end), today)
 
     def fii_dii(self):
         return self._wrap(P.parse_fii_dii, self.get_json("fiidiiTradeReact", None, TTL_FLOWS), "FII/DII")
