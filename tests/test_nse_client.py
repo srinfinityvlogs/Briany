@@ -152,3 +152,30 @@ def test_next_results_returns_event_or_none_for_not_announced():
     assert c._open.calls[0].endswith("from_date=07-11-2026&to_date=07-03-2027")         # 120-day horizon
     c2, _ = client([b"[]"])
     assert c2.next_results("ABC", "2026-11-07") is None
+
+
+def rec(symbol, ex, subject):
+    return {"symbol": symbol, "comp": symbol, "exDate": ex, "recDate": ex, "subject": subject, "series": "EQ", "isin": "X"}
+
+
+def test_corporate_actions_all_merges_indexes_and_reports_each():
+    equities = json.dumps([rec("AAA", "05-Mar-2026", "Bonus 1:1"), rec("DUP", "05-Mar-2026", "Dividend - Rs 1")]).encode()
+    sme = json.dumps([rec("BBB", "06-Mar-2026", "Face Value Split - From Rs 10 To Rs 2"),
+                      rec("DUP", "05-Mar-2026", "Dividend - Rs 1")]).encode()
+    mf = json.dumps([rec("ETFX", "07-Mar-2026", "Face Value Split - From Rs 100 To Rs 10")]).encode()
+    c, _ = client([equities, sme, mf])
+    acts, report = c.corporate_actions_all(start="2026-03-01", end="2026-03-31")
+    assert [a.symbol for a in acts] == ["AAA", "DUP", "BBB", "ETFX"]               # DUP not repeated
+    assert report == {"equities": {"raw": 2, "parsed": 2}, "sme": {"raw": 2, "parsed": 2},
+                      "mf": {"raw": 1, "parsed": 1}}
+    assert [u.split("index=")[1].split("&")[0] for u in c._open.calls] == ["equities", "sme", "mf"]
+
+
+def test_corporate_actions_all_reports_a_bad_extra_index_but_not_a_bad_first_one():
+    good = json.dumps([rec("AAA", "05-Mar-2026", "Bonus 1:1")]).encode()
+    c, _ = client([good, http(400), b'{"not": "a list"}'])
+    acts, report = c.corporate_actions_all()
+    assert len(acts) == 1 and "HTTP 400" in report["sme"]["error"] and "unexpected" in report["mf"]["error"]
+    c2, _ = client([http(403)])
+    with pytest.raises(NseError, match="HTTP 403"):
+        c2.corporate_actions_all()

@@ -109,3 +109,18 @@ def test_parse_bhavcopy_filters_series_and_reports_stats():
     inst, stats = parse_bhavcopy(csv_text)
     assert {i.symbol for i in inst} == {"RELIANCE", "GOLDBEES"}
     assert stats["rows"] == 3 and stats["series"]["N1"] == 1
+
+
+def test_rights_entitlements_match_only_when_named_exactly():
+    r = Resolver([Instrument("PARTY", "PARTY INDUSTRIES LTD", turnover=1e8),
+                  Instrument("PARTY-RE", "PARTY INDUSTRIES LTD RIGHTS ENTITLEMENT", turnover=1e5),
+                  Instrument("OLAELEC-RE1", "OLA ELECTRIC RIGHTS ENT", turnover=1e5)])
+    assert sym_of(r, "party") == ("exact", "PARTY")
+    assert sym_of(r, "party industries")[1] == "PARTY"
+    assert sym_of(r, "party-re") == ("exact", "PARTY-RE")
+    assert r.resolve("ola electric").status == "none"          # only the entitlement exists: not offered
+
+
+def sym_of(resolver, query):
+    res = resolver.resolve(query)
+    return res.status, (res.best.symbol if res.best else None)

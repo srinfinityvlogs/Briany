@@ -12,7 +12,7 @@ import io
 from dataclasses import dataclass
 from datetime import date as Date, timedelta
 
-from briany.symbols import ALLOWED_SERIES
+from briany.symbols import ALLOWED_SERIES, is_entitlement
 
 JUMP_PCT = 30.0           # one-day change at/above this is 'large'
 MIN_JUMP_PRICE = 1.0      # ignore prior closes below Rs 1: one tick looks like +50% (rights entitlements)
@@ -106,7 +106,7 @@ def find_jumps(rows, prior_rows, day, threshold=JUMP_PCT):
     out = []
     for sym, row in rows.items():
         p = prior_rows.get(sym)
-        if not p or p.close < MIN_JUMP_PRICE:
+        if not p or p.close < MIN_JUMP_PRICE or is_entitlement(sym):
             continue
         pct = (row.close - p.close) / p.close * 100
         if abs(pct) >= threshold:

@@ -22,6 +22,7 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.nseindia.com/",
 }
+ALL_ACTION_INDEXES = ("equities", "sme", "mf")
 MAX_CACHE_BYTES = 100_000     # never park big responses in Redis (30 MB plan)
 
 TTL_ACTIONS, TTL_ANNOUNCEMENTS, TTL_MEETINGS, TTL_CALENDAR, TTL_FLOWS = 6 * 3600, 600, 3600, 6 * 3600, 1800
@@ -122,10 +123,36 @@ class NseClient:
             p["to_date"] = P.to_nse_date(end)
         return p
 
-    def corporate_actions(self, symbol=None, start=None, end=None):
-        params = {"index": "equities", **({"symbol": symbol} if symbol else {}), **self._window(start, end)}
-        return self._wrap(P.parse_corporate_actions,
-                          self.get_json("corporates-corporateActions", params, TTL_ACTIONS), "corporate actions")
+    def _action_params(self, symbol, start, end, index):
+        return {"index": index, **({"symbol": symbol} if symbol else {}), **self._window(start, end)}
+
+    def corporate_actions(self, symbol=None, start=None, end=None, index="equities"):
+        data = self.get_json("corporates-corporateActions", self._action_params(symbol, start, end, index), TTL_ACTIONS)
+        return self._wrap(P.parse_corporate_actions, data, "corporate actions")
+
+    def corporate_actions_all(self, symbol=None, start=None, end=None, indexes=ALL_ACTION_INDEXES):
+        """Merge several NSE indexes (equities plus the SME and mutual-fund/ETF listings).
+        Returns (actions, report). report[index] = {'raw': n, 'parsed': m} or {'error': text}.
+        The first index must succeed; a failing later index is reported, not fatal.
+        The 'sme' and 'mf' index names are UNVERIFIED until a real run shows data."""
+        seen, out, report = set(), [], {}
+        for i, index in enumerate(indexes):
+            try:
+                raw = self.get_json("corporates-corporateActions",
+                                    self._action_params(symbol, start, end, index), TTL_ACTIONS)
+                parsed = self._wrap(P.parse_corporate_actions, raw, f"corporate actions ({index})")
+            except NseError as e:
+                if i == 0:
+                    raise
+                report[index] = {"error": str(e)}
+                continue
+            report[index] = {"raw": len(raw) if isinstance(raw, list) else None, "parsed": len(parsed)}
+            for a in parsed:
+                key = (a.symbol, a.ex_date, a.subject)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(a)
+        return sorted(out, key=lambda a: (a.ex_date, a.symbol)), report
 
     def announcements(self, symbol, start=None, end=None):
         params = {"index": "equities", "symbol": symbol, **self._window(start, end)}

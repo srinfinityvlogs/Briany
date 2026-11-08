@@ -61,6 +61,13 @@ INDEX_ALIASES = {"nifty": "NIFTY 50", "nifty50": "NIFTY 50", "nifty 50": "NIFTY 
                  "nifty bank": "NIFTY BANK"}
 
 
+ENTITLEMENT = re.compile(r"-RE\d*$")      # rights entitlements: short-lived, option-like instruments
+
+
+def is_entitlement(symbol: str) -> bool:
+    return bool(ENTITLEMENT.search(symbol or ""))
+
+
 def normalize(text: str) -> str:
     t = text.lower().replace("&", " and ")
     t = re.sub(r"[^a-z0-9]+", " ", t)
@@ -84,6 +91,8 @@ def _tok_match(w: str, t: str, allow_abbrev: bool) -> bool:
 
 def _score(q: str, qc: str, inst: Instrument) -> float:
     sym = re.sub(r"[^a-z0-9]", "", inst.symbol.lower())
+    if is_entitlement(inst.symbol) and qc != sym:
+        return 0.0                      # entitlements match only when named exactly
     name = normalize(inst.name)
     nc = name.replace(" ", "")
     tokens = [t for t in name.split() if len(t) > 1]

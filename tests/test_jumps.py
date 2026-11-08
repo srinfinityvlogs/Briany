@@ -25,6 +25,12 @@ def test_find_jumps_threshold_and_penny_filter():
     assert sorted(got) == [("ETF", "2026-03-06", -90.0), ("UP", "2026-03-06", 35.0)]
 
 
+def test_rights_entitlements_are_never_jumps():
+    prior = {"OLAELEC-RE": PriceRow(10.0), "INDO-RE2": PriceRow(5.0), "SILGO-RE1": PriceRow(8.0)}
+    today = {"OLAELEC-RE": PriceRow(6.0), "INDO-RE2": PriceRow(3.0), "SILGO-RE1": PriceRow(11.2)}
+    assert find_jumps(today, prior, "2026-03-06") == []
+
+
 # ---------------------------------------------------------------- daily move
 def two_day_store(c1, c2, prev2=None):
     s = MemoryStore()
@@ -109,21 +115,21 @@ def test_record_jumps_skips_big_gaps_and_rebuild_recovers_everything():
 # ---------------------------------------------------------------- crosscheck additions
 def test_crosscheck_ignores_penny_prices_and_returns_unexplained_rows():
     s = MemoryStore()
-    s.put_day("2026-01-02", {"ETF": PriceRow(1000.0), "PENNY-RE": PriceRow(0.10)})
-    s.put_day("2026-01-05", {"ETF": PriceRow(100.0), "PENNY-RE": PriceRow(0.15)})
+    s.put_day("2026-01-02", {"ETF": PriceRow(1000.0), "PENNY-RE": PriceRow(0.10), "OLAELEC-RE": PriceRow(10.0)})
+    s.put_day("2026-01-05", {"ETF": PriceRow(100.0), "PENNY-RE": PriceRow(0.15), "OLAELEC-RE": PriceRow(6.0)})
     res = crosscheck(s, [], out=lambda *_: None)
     assert res["total"] == 1 and [r[2] for r in res["unmatched_rows"]] == ["ETF"]
 
 
 def test_investigate_lists_what_nse_shows_and_survives_failures():
     class FakeNse:
-        def corporate_actions(self, symbol, start, end):
+        def corporate_actions_all(self, symbol, start, end):
             if symbol == "BOOM":
                 raise RuntimeError("HTTP 500")
             if symbol == "SPLITCO":
                 return [CorpAction("SPLITCO", "SplitCo", "2026-03-04", None, "Face Value Split From Rs 10 To Rs 2",
-                                   "split", True)]
-            return []
+                                   "split", True)], {}
+            return [], {}
     rows = [(99.0, "2026-03-06", "ETF", 1000.0, 10.0, -99.0), (80.0, "2026-03-06", "SPLITCO", 100.0, 20.0, -80.0),
             (70.0, "2026-03-06", "BOOM", 100.0, 30.0, -70.0)]
     lines = []

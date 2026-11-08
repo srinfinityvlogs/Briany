@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 from briany.marketdata import MIN_JUMP_PRICE
+from briany.symbols import is_entitlement
 
 
 def _pairs(store):
@@ -26,7 +27,7 @@ def crosscheck(store, actions, threshold=30.0, out=print) -> dict:
         rows, prows = store.get_day(day), store.get_day(prior)
         for sym, row in rows.items():
             p = prows.get(sym)
-            if not p or p.close < MIN_JUMP_PRICE:
+            if not p or p.close < MIN_JUMP_PRICE or is_entitlement(sym):
                 continue
             pct = (row.close - p.close) / p.close * 100
             if abs(pct) < threshold:
@@ -77,7 +78,7 @@ def investigate(nse, rows, out=print, limit=120, before=30, after=5):
         start = (date.fromisoformat(day) - timedelta(days=before)).isoformat()
         end = (date.fromisoformat(day) + timedelta(days=after)).isoformat()
         try:
-            acts = nse.corporate_actions(symbol=sym, start=start, end=end)
+            acts = nse.corporate_actions_all(symbol=sym, start=start, end=end)[0]
         except Exception as e:  # noqa: BLE001 - report and carry on
             out(f"  {day} {sym} ({pct}%): lookup failed ({type(e).__name__})")
             continue
@@ -94,7 +95,8 @@ def main():
     if not days:
         raise SystemExit("no days stored")
     nse = NseClient(min_interval=settings.nse_min_interval_seconds)
-    actions = nse.corporate_actions(start=days[0], end=days[-1])
+    actions, report = nse.corporate_actions_all(start=days[0], end=days[-1])
+    print("per-index report:", report)
     print(f"corporate actions fetched: {len(actions)} "
           f"({sum(1 for a in actions if a.blocking)} blocking) for {days[0]} .. {days[-1]}")
     print("kinds:", dict(Counter(a.kind for a in actions).most_common()))

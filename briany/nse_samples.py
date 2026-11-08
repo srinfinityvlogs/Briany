@@ -39,6 +39,11 @@ SAMPLES = [
     ("corp_actions_symbol_dates", "corporates-corporateActions?index=equities&symbol=RELIANCE&from_date=01-01-2024&to_date=06-11-2026"),
     ("board_meetings_dates", "corporate-board-meetings?index=equities&symbol=RELIANCE&from_date=01-07-2026&to_date=06-11-2026"),
     ("event_calendar_upcoming", "event-calendar?index=equities&symbol=RELIANCE&from_date=07-11-2026&to_date=31-12-2026"),
+    # round 3: do other indexes carry the SME-stock and ETF corporate actions?
+    ("corp_actions_sme_year", "corporates-corporateActions?index=sme&from_date=01-11-2025&to_date=06-11-2026"),
+    ("corp_actions_mf_year", "corporates-corporateActions?index=mf&from_date=01-11-2025&to_date=06-11-2026"),
+    ("corp_actions_sme_symbol", "corporates-corporateActions?index=sme&symbol=VMARCIND"),
+    ("corp_actions_mf_symbol", "corporates-corporateActions?index=mf&symbol=LICMFGOLD"),
     ("event_calendar_all_upcoming", "event-calendar?index=equities&from_date=09-11-2026&to_date=20-11-2026"),
 ]
 CSV_SAMPLES = [("bulk_csv", ARCHIVE + "bulk.csv"), ("block_csv", ARCHIVE + "block.csv")]
