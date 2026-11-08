@@ -14,7 +14,7 @@ from datetime import date as Date, datetime, timedelta
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from briany.marketdata import DataError, parse_prices
+from briany.marketdata import MAX_GAP_DAYS, DataError, find_jumps, parse_prices
 from briany.nsefiles import FetchError, fetch_bhavcopy
 
 
@@ -82,6 +82,28 @@ def calendar_days(start: str, end: str):
         d += timedelta(days=1)
 
 
+def record_jumps(store, day) -> int:
+    """Record large one-day moves for `day` against the previous stored day (if close enough)."""
+    prior = store.day_on_or_before((Date.fromisoformat(day) - timedelta(days=1)).isoformat())
+    if prior is None or (Date.fromisoformat(day) - Date.fromisoformat(prior)).days > MAX_GAP_DAYS:
+        return 0
+    found = find_jumps(store.get_day(day), store.get_day(prior), day)
+    store.add_jumps(found)
+    return len(found)
+
+
+def rebuild_jumps(store) -> int:
+    """Recompute every large-move record from the stored days (use after out-of-order backfills)."""
+    days, entries = store.all_days(), []
+    for prior, day in zip(days, days[1:]):
+        if (Date.fromisoformat(day) - Date.fromisoformat(prior)).days > MAX_GAP_DAYS:
+            continue
+        entries += find_jumps(store.get_day(day), store.get_day(prior), day)
+    store.clear_jumps()
+    store.add_jumps(entries)
+    return len(entries)
+
+
 def ingest_day(store, day, fetch=fetch_bhavcopy, force=False, retries=1, sleep=time.sleep) -> str:
     """Returns 'stored', 'exists' or 'no_file'. Raises FetchError/DataError on real problems."""
     if not force and store.has_day(day):
@@ -100,6 +122,7 @@ def ingest_day(store, day, fetch=fetch_bhavcopy, force=False, retries=1, sleep=t
     if len(rows) < 500:
         raise DataError(f"only {len(rows)} instruments parsed for {day}; refusing to store")
     store.put_day(parsed_day, rows)
+    record_jumps(store, parsed_day)
     return "stored"
 
 
@@ -144,6 +167,7 @@ def main(argv=None):
     ap.add_argument("--recent", type=int, help="ingest the last N calendar days up to today (IST)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
+    ap.add_argument("--rebuild-jumps", action="store_true", help="recompute large-move records from stored days")
     ap.add_argument("--purge-legacy", action="store_true",
                     help="delete the old px:* keys (one-time cleanup), then exit")
     a = ap.parse_args(argv)
@@ -157,6 +181,9 @@ def main(argv=None):
     if a.check:
         from briany.dbcheck import run_check
         sys.exit(0 if run_check(store) else 1)
+    if a.rebuild_jumps:
+        print("large-move records rebuilt:", rebuild_jumps(store))
+        return
     if a.purge_legacy:
         from briany.store import purge_legacy
         print("removed legacy keys:", purge_legacy(client))

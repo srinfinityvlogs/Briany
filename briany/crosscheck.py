@@ -6,6 +6,9 @@ Public data only. Reports counts and examples; it proves nothing by itself.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import date, timedelta
+
+from briany.marketdata import MIN_JUMP_PRICE
 
 
 def _pairs(store):
@@ -23,7 +26,7 @@ def crosscheck(store, actions, threshold=30.0, out=print) -> dict:
         rows, prows = store.get_day(day), store.get_day(prior)
         for sym, row in rows.items():
             p = prows.get(sym)
-            if not p or p.close <= 0:
+            if not p or p.close < MIN_JUMP_PRICE:
                 continue
             pct = (row.close - p.close) / p.close * 100
             if abs(pct) < threshold:
@@ -62,7 +65,24 @@ def crosscheck(store, actions, threshold=30.0, out=print) -> dict:
         visible["drop >= 30%" if drop <= -30 else "drop 10-30%" if drop <= -10 else "drop < 10% or rise"] += 1
     out("bonus/split actions inside the stored range, by visible price change on the ex-date: "
         + (", ".join(f"{k}: {n}" for k, n in sorted(visible.items())) or "none"))
-    return {"total": total, "matched": matched, "unmatched": len(unmatched), "visible": dict(visible)}
+    return {"total": total, "matched": matched, "unmatched": len(unmatched), "visible": dict(visible),
+            "unmatched_rows": unmatched}
+
+
+def investigate(nse, rows, out=print, limit=120, before=30, after=5):
+    """For each unexplained move, show everything NSE lists for that symbol around the date."""
+    out(f"investigating {min(len(rows), limit)} unexplained move(s): NSE's own per-symbol feed "
+        f"from {before} days before to {after} days after")
+    for _, day, sym, _a, _b, pct in rows[:limit]:
+        start = (date.fromisoformat(day) - timedelta(days=before)).isoformat()
+        end = (date.fromisoformat(day) + timedelta(days=after)).isoformat()
+        try:
+            acts = nse.corporate_actions(symbol=sym, start=start, end=end)
+        except Exception as e:  # noqa: BLE001 - report and carry on
+            out(f"  {day} {sym} ({pct}%): lookup failed ({type(e).__name__})")
+            continue
+        listed = "; ".join(f"{a.ex_date} {a.kind}: {a.subject[:60]}" for a in acts) or "nothing listed"
+        out(f"  {day} {sym} ({pct}%): {listed}")
 
 
 def main():
@@ -78,7 +98,9 @@ def main():
     print(f"corporate actions fetched: {len(actions)} "
           f"({sum(1 for a in actions if a.blocking)} blocking) for {days[0]} .. {days[-1]}")
     print("kinds:", dict(Counter(a.kind for a in actions).most_common()))
-    crosscheck(store, actions)
+    res = crosscheck(store, actions)
+    print()
+    investigate(nse, res["unmatched_rows"])
 
 
 if __name__ == "__main__":

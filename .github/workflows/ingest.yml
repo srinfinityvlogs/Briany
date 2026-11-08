@@ -17,6 +17,10 @@ on:
         description: "Type yes for a read-only report on what is stored (instead of ingesting)"
         required: false
         default: "no"
+      rebuild_jumps:
+        description: "Type yes to recompute large-move records from stored days (instead of ingesting)"
+        required: false
+        default: "no"
       purge_legacy:
         description: "One-time cleanup of the old px:* keys (type yes to run it instead of ingesting)"
         required: false
@@ -43,10 +47,13 @@ jobs:
           IN_END: ${{ github.event.inputs.end }}
           IN_PURGE: ${{ github.event.inputs.purge_legacy }}
           IN_CHECK: ${{ github.event.inputs.check }}
+          IN_REBUILD: ${{ github.event.inputs.rebuild_jumps }}
           REDIS_MAX_MEMORY_MB: "30"     # Upstash free plan via Vercel; the server does not report it
         run: |
           if [ "$IN_CHECK" = "yes" ]; then
             python -m briany.ingest --check
+          elif [ "$IN_REBUILD" = "yes" ]; then
+            python -m briany.ingest --rebuild-jumps
           elif [ "$IN_PURGE" = "yes" ]; then
             python -m briany.ingest --purge-legacy
           elif [ -n "$IN_START" ]; then

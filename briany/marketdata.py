@@ -14,6 +14,8 @@ from datetime import date as Date, timedelta
 
 from briany.symbols import ALLOWED_SERIES
 
+JUMP_PCT = 30.0           # one-day change at/above this is 'large'
+MIN_JUMP_PRICE = 1.0      # ignore prior closes below Rs 1: one tick looks like +50% (rights entitlements)
 MAX_GAP_DAYS = 7          # nearest stored day may be at most this far from the target
 PREV_CLOSE_TOLERANCE = 0.005
 
@@ -37,7 +39,7 @@ class CorporateAction:
 
 @dataclass(frozen=True)
 class DailyMove:
-    status: str           # "ok" | "no_data" | "blocked_by_corporate_action"
+    status: str           # "ok" | "no_data" | "blocked_by_corporate_action" | "unverified_large_move"
     symbol: str
     date: str | None = None
     close: float | None = None
@@ -50,7 +52,7 @@ class DailyMove:
 
 @dataclass(frozen=True)
 class ReturnResult:
-    status: str           # "ok" | "no_data" | "insufficient_history" | "blocked_by_corporate_action"
+    status: str           # "ok" | "no_data" | "insufficient_history" | "blocked_by_corporate_action" | "unverified_large_move"
     symbol: str
     pct: float | None = None
     start_date: str | None = None
@@ -59,6 +61,7 @@ class ReturnResult:
     end_close: float | None = None
     actions: tuple = ()
     note: str = ""
+    jumps: tuple = ()     # (date, pct) large one-day moves inside the window
 
 
 def _num(text) -> float | None:
@@ -97,6 +100,20 @@ def parse_prices(text: str, expected_date: str | None = None):
     return day, {s: row for s, (_, row) in best.items()}
 
 
+def find_jumps(rows, prior_rows, day, threshold=JUMP_PCT):
+    """Large one-day moves between two stored days: [(symbol, day, pct)]. Price-only, so it also
+    catches splits/unit changes that NSE's corporate-action feed does not list (e.g. ETFs)."""
+    out = []
+    for sym, row in rows.items():
+        p = prior_rows.get(sym)
+        if not p or p.close < MIN_JUMP_PRICE:
+            continue
+        pct = (row.close - p.close) / p.close * 100
+        if abs(pct) >= threshold:
+            out.append((sym, day, round(pct, 1)))
+    return out
+
+
 def _pct(new: float, old: float) -> float:
     return round((new - old) / old * 100, 2)
 
@@ -129,8 +146,12 @@ def daily_move(store, symbol: str, on: str | None = None, actions=()) -> DailyMo
             if not matches:
                 note = (f"NSE's previous close ({row.prev_close}) differs from the {prior} "
                         f"close ({prow.close}); a corporate action adjustment is possible")
-    return DailyMove("ok", symbol, day, row.close, row.prev_close,
-                     _pct(row.close, row.prev_close), matches, note)
+    pct = _pct(row.close, row.prev_close)
+    if abs(pct) >= JUMP_PCT and row.prev_close >= MIN_JUMP_PRICE:
+        return DailyMove("unverified_large_move", symbol, day, row.close, row.prev_close, pct, matches,
+                         "large one-day change with no matching corporate action in NSE's feed; "
+                         "it may reflect an unlisted unit or face-value change")
+    return DailyMove("ok", symbol, day, row.close, row.prev_close, pct, matches, note)
 
 
 def shift_months(d: Date, months: int) -> Date:
@@ -153,7 +174,7 @@ def period_start(end: str, label: str) -> str | None:
     return None
 
 
-def period_return(store, symbol: str, end: str, start_target: str, actions=()) -> ReturnResult:
+def period_return(store, symbol: str, end: str, start_target: str, actions=(), jumps=None) -> ReturnResult:
     end_day = store.day_on_or_before(end)
     start_day = store.day_on_or_before(start_target)
     earliest = store.earliest_day()
@@ -175,4 +196,11 @@ def period_return(store, symbol: str, end: str, start_target: str, actions=()) -
         return ReturnResult("blocked_by_corporate_action", symbol, start_date=start_day,
                             end_date=end_day, actions=hits,
                             note="closes are not adjusted for splits/bonuses, so no return is given")
+    if jumps is None:
+        jumps = store.get_jumps(symbol) if hasattr(store, "get_jumps") else ()
+    jhits = tuple((d, p) for d, p in jumps if start_day < d <= end_day)
+    if jhits:
+        return ReturnResult("unverified_large_move", symbol, start_date=start_day, end_date=end_day,
+                            jumps=jhits, note="a one-day change of 30% or more inside this period has no matching "
+                            "corporate action; it may be an unlisted split or unit change, so no return is given")
     return ReturnResult("ok", symbol, _pct(e.close, s.close), start_day, s.close, end_day, e.close)

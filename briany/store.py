@@ -9,11 +9,13 @@ which used far too much memory; purge_legacy() removes it.)
 from __future__ import annotations
 
 import base64
+import json
 import zlib
 
 from briany.marketdata import PriceRow
 
 DAYS_KEY = "pxz:days"
+JUMPS_KEY = "pxz:jumps"
 DAY_PREFIX = "pxz:"
 LEGACY_PATTERN = "px:*"
 
@@ -32,9 +34,33 @@ def _score(day: str) -> int:
     return int(day.replace("-", ""))
 
 
+def _merge_jumps(existing, new):
+    """existing: [[date, pct], ...]; new: [(date, pct), ...] -> sorted, one entry per date."""
+    by_date = {d: p for d, p in existing}
+    by_date.update(dict(new))
+    return [[d, by_date[d]] for d in sorted(by_date)]
+
+
 class MemoryStore:
     def __init__(self):
         self.days: dict[str, dict[str, PriceRow]] = {}
+        self.jumps: dict[str, list] = {}
+
+    def add_jumps(self, entries):
+        grouped: dict[str, list] = {}
+        for sym, day, pct in entries:
+            grouped.setdefault(sym, []).append((day, pct))
+        for sym, items in grouped.items():
+            self.jumps[sym] = _merge_jumps(self.jumps.get(sym, []), items)
+
+    def get_jumps(self, symbol):
+        return [(d, p) for d, p in self.jumps.get(symbol, [])]
+
+    def all_jumps(self):
+        return {s: [(d, p) for d, p in v] for s, v in self.jumps.items()}
+
+    def clear_jumps(self):
+        self.jumps = {}
 
     def put_day(self, day, rows):
         self.days[day] = dict(rows)
@@ -112,6 +138,28 @@ class RedisStore:
 
     def has_day(self, day):
         return self.r.zscore(DAYS_KEY, day) is not None
+
+    def add_jumps(self, entries):
+        grouped: dict[str, list] = {}
+        for sym, day, pct in entries:
+            grouped.setdefault(sym, []).append((day, pct))
+        if not grouped:
+            return
+        syms = list(grouped)
+        current = self.r.hmget(JUMPS_KEY, syms)
+        mapping = {sym: json.dumps(_merge_jumps(json.loads(cur) if cur else [], grouped[sym]))
+                   for sym, cur in zip(syms, current)}
+        self.r.hset(JUMPS_KEY, mapping=mapping)
+
+    def get_jumps(self, symbol):
+        v = self.r.hget(JUMPS_KEY, symbol)
+        return [(d, p) for d, p in json.loads(v)] if v else []
+
+    def all_jumps(self):
+        return {s: [(d, p) for d, p in json.loads(v)] for s, v in self.r.hgetall(JUMPS_KEY).items()}
+
+    def clear_jumps(self):
+        self.r.delete(JUMPS_KEY)
 
     def _load(self, day):
         if day in self._cache:
