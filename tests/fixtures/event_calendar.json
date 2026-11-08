@@ -1,0 +1,181 @@
+{
+ "url": "https://www.nseindia.com/api/event-calendar?index=equities&symbol=RELIANCE",
+ "sample": [
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Demerger",
+   "bm_desc": "The BoD's of the Company propose to consider the scheme relating to the proposed demerger of Power, Financial Services and Telecommunication Services (Scheme of Demerger) at their meeting to be held on August 05, 2005.",
+   "date": "05-Aug-2005"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Financial Results",
+   "bm_desc": "To consider, inter alia, the Financial Results of the Company for the quarter ended on September 30, 2007.",
+   "date": "18-Oct-2007"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "Inter-alia to consider and approve, the audited financial results for the quarter / year ended March 31, 2011 and to consider and recommend dividend on equity shares of the Company.",
+   "date": "21-Apr-2011"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results / Buyback",
+   "bm_desc": "The Company had informed the Exchange that a meeting of the Board of Directors of the Company will be held on January 20, 2012 inter-alia to consider and approve the unaudited financial results of the Company for the quarter / nine months ended December 31, 2011. The Company has now informed the Exc...[533 chars]",
+   "date": "20-Jan-2012"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "Inter aila, to consider and approve, the audited Financial results for the quarter/ year ended March 31, 2012 and to consider and recommend dividend on equity shares of the Company.",
+   "date": "20-Apr-2012"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "Inter alia, to consider and approve the audited financial results of the Company for the quarter/ year ended March 31, 2013 and to consider and recommend dividend on equity shares of the Company.",
+   "date": "16-Apr-2013"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "Inter alia, to consider and approve the unaudited financial results of the Company for the quarter ended June 30, 2013.",
+   "date": "19-Jul-2013"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "Inter alia, to consider and approve the unaudited financial results of the Company for the quarter / half year ended September 30, 2013.",
+   "date": "14-Oct-2013"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "To consider and approve the unaudited financial results of the company for the quarter/nine months ended December 31, 2013. Further the Company has decided that the close period (i.e. closure of trading window) for insiders covered under \"Reliance Code of Conduct for Prohibition of Insider Trading\" ...[424 chars]",
+   "date": "17-Jan-2014"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "Inter alia, to consider and approve the audited financial results of the Company for the quarter / year ended March 31, 2014 and to consider and recommend dividend on equity shares of the Company. Pursuant to this, the Company has decided that the close period (i.e. closure of trading window) for In...[503 chars]",
+   "date": "18-Apr-2014"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter alia, to consider and approve the unaudited financial results of the Company for the quarter ended June 30, 2014.",
+   "date": "19-Jul-2014"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "To consider and approve the unaudited financial results of the Company for the quarter/ half year ended September 30, 2014.Further, the Company has decided that the close period (i.e.) closure of trading window) for insider covered under \"Reliance Code of Conduct for Prohibition of Insider Trading\" ...[423 chars]",
+   "date": "13-Oct-2014"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter alia, to consider and approve the unaudited financial results of the Company for the quarter/ nine months ended December 31, 2014",
+   "date": "16-Jan-2015"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "inter alia, to consider and approve standalone and consolidated audited financial results of the Company for the quarter / year ended March 31, 2015 and to consider and recommend dividend on equity shares of the Company.",
+   "date": "17-Apr-2015"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "Inter alia, to consider and approve the standalone and consolidated financial results of the Company for the quarter ended June 30, 2015.",
+   "date": "24-Jul-2015"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter alia, to consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter / half year ended September 30, 2015.",
+   "date": "16-Oct-2015"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "to, inter alia, consider and approve the standalone and consolidated unaudited financial results of the Company for the third quarter/ nine months ended December 31, 2015.",
+   "date": "19-Jan-2016"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Dividend",
+   "bm_desc": "Inter alia, to consider and declare interim dividend",
+   "date": "10-Mar-2016"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter alia, to consider and approve standalone and consolidated audited financial results of the Company for the quarter / year ended March 31, 2016.",
+   "date": "22-Apr-2016"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter alia, to consider and approve standalone and consolidated unaudited financial results of the Company for the first quarter ended on June 30, 2016.",
+   "date": "15-Jul-2016"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "To, inter-alia, consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter / half year ended September 30, 2016.",
+   "date": "20-Oct-2016"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "To, inter-alia, consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter / nine months ended December 31, 2016.",
+   "date": "16-Jan-2017"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results/Dividend",
+   "bm_desc": "inter alia, to consider and approve standalone and consolidated audited financial results of the Company for the quarter / year ended March 31, 2017 and to consider and recommend dividend on equity shares of the Company.",
+   "date": "24-Apr-2017"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "To, inter-alia, consider and approve the standalone and consolidated unaudited financial results of the Company for the quarter ended June 30, 2017.",
+   "date": "20-Jul-2017"
+  },
+  {
+   "symbol": "RELIANCE",
+   "company": "Reliance Industries Limited",
+   "purpose": "Results",
+   "bm_desc": "inter-alia, to consider and approve standalone and consolidated unaudited financial results of the Company for the quarter / half year ended September 30, 2017.",
+   "date": "13-Oct-2017"
+  },
+  "...[41 more items]"
+ ]
+}

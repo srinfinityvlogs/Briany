@@ -34,6 +34,12 @@ SAMPLES = [
     ("insider_pit", "corporates-pit?index=equities&symbol=RELIANCE"),
     ("fii_dii", "fiidiiTradeReact"),
     ("bulk_snapshot", "snapshot-capital-market-largedeal"),
+    # round 2: do date parameters fix the stale results list and narrow other feeds?
+    ("results_with_dates", "corporates-financial-results?index=equities&symbol=RELIANCE&period=Quarterly&from_date=01-01-2026&to_date=06-11-2026"),
+    ("corp_actions_symbol_dates", "corporates-corporateActions?index=equities&symbol=RELIANCE&from_date=01-01-2024&to_date=06-11-2026"),
+    ("board_meetings_dates", "corporate-board-meetings?index=equities&symbol=RELIANCE&from_date=01-07-2026&to_date=06-11-2026"),
+    ("event_calendar_upcoming", "event-calendar?index=equities&symbol=RELIANCE&from_date=07-11-2026&to_date=31-12-2026"),
+    ("event_calendar_all_upcoming", "event-calendar?index=equities&from_date=09-11-2026&to_date=20-11-2026"),
 ]
 CSV_SAMPLES = [("bulk_csv", ARCHIVE + "bulk.csv"), ("block_csv", ARCHIVE + "block.csv")]
 
@@ -105,8 +111,12 @@ def main(out_dir="samples", pause=1.5):
             rec = first_record(data)
             if rec is not None:
                 print("   first record:", json.dumps(truncate(rec, 120), ensure_ascii=False)[:900])
+            doc = {"url": BASE + path, "sample": truncate(data)}
+            if isinstance(data, list) and len(data) > 25:          # keep the end of long lists too
+                doc["tail"] = truncate(data[-5:])
+                doc["total"] = len(data)
             with open(os.path.join(out_dir, name + ".json"), "w", encoding="utf-8") as fh:
-                json.dump({"url": BASE + path, "sample": truncate(data)}, fh, indent=1, ensure_ascii=False)
+                json.dump(doc, fh, indent=1, ensure_ascii=False)
         else:
             print("  ", {k: v for k, v in res.items() if k != "data"})
         time.sleep(pause)

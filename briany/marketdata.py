@@ -37,7 +37,7 @@ class CorporateAction:
 
 @dataclass(frozen=True)
 class DailyMove:
-    status: str           # "ok" | "no_data"
+    status: str           # "ok" | "no_data" | "blocked_by_corporate_action"
     symbol: str
     date: str | None = None
     close: float | None = None
@@ -45,6 +45,7 @@ class DailyMove:
     pct: float | None = None
     prev_matches_store: bool | None = None   # None = prior day not stored
     note: str = ""
+    actions: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -100,8 +101,10 @@ def _pct(new: float, old: float) -> float:
     return round((new - old) / old * 100, 2)
 
 
-def daily_move(store, symbol: str, on: str | None = None) -> DailyMove:
-    """Move on the latest stored day (or the last stored day on/before `on`)."""
+def daily_move(store, symbol: str, on: str | None = None, actions=()) -> DailyMove:
+    """Move on the latest stored day (or the last stored day on/before `on`).
+    NSE's previous close is NOT adjusted for splits/bonuses, so a blocking action whose
+    ex-date is this day makes the raw change meaningless: no percentage is given."""
     day = store.latest_day() if on is None else store.day_on_or_before(on)
     if day is None:
         return DailyMove("no_data", symbol, note="no price data stored")
@@ -112,6 +115,11 @@ def daily_move(store, symbol: str, on: str | None = None) -> DailyMove:
         return DailyMove("no_data", symbol, date=day, close=row.close,
                          note="file has no previous close for this symbol")
     prior = store.day_on_or_before((Date.fromisoformat(day) - timedelta(days=1)).isoformat())
+    hits = tuple(a for a in actions if (prior is None or a.ex_date > prior) and a.ex_date <= day)
+    if hits:
+        return DailyMove("blocked_by_corporate_action", symbol, day, row.close, row.prev_close,
+                         actions=hits,
+                         note="NSE's previous close is not adjusted, so the raw change is not a real move")
     matches = None
     note = ""
     if prior is not None:

@@ -1,0 +1,19 @@
+name: crosscheck-actions
+
+on:
+  workflow_dispatch:
+
+jobs:
+  crosscheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Compare big price moves with corporate actions
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        run: python -m briany.crosscheck

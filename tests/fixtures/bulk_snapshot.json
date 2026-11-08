@@ -1,0 +1,717 @@
+{
+ "url": "https://www.nseindia.com/api/snapshot-capital-market-largedeal",
+ "sample": {
+  "as_on_date": "06-Nov-2026",
+  "BULK_DEALS_DATA": [
+   {
+    "buySell": "BUY",
+    "clientName": "VAIBHAV RAJENDRA DOSHI",
+    "date": "06-Nov-2026",
+    "name": "AAA Technologies Limited",
+    "qty": "84322",
+    "remarks": "-",
+    "symbol": "AAATECH",
+    "watp": "96.19"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "VAIBHAV RAJENDRA DOSHI",
+    "date": "06-Nov-2026",
+    "name": "Agarwal Tough Glass Ind L",
+    "qty": "177600",
+    "remarks": "-",
+    "symbol": "AGARWALTUF",
+    "watp": "169.63"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ARIHANT CAPITAL MARKETS LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Agi Infra Limited",
+    "qty": "1025716",
+    "remarks": "-",
+    "symbol": "AGIIL",
+    "watp": "295.93"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "PARAM CAPITAL",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "729729",
+    "remarks": "-",
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "BANDHAN MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "855971",
+    "remarks": "-",
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "SOLIDARITY MICRO CAP EMERGING LEADER AIF",
+    "date": "06-Nov-2026",
+    "name": "Apsis Aerocom Limited",
+    "qty": "94600",
+    "remarks": "-",
+    "symbol": "APSISAERO",
+    "watp": "468"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ALPHAGREP SECURITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "BLS Polymers Limited",
+    "qty": "403737",
+    "remarks": "-",
+    "symbol": "BLSPOLY",
+    "watp": "243.98"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "PLUTUS WEALTH MANAGEMENT LLP",
+    "date": "06-Nov-2026",
+    "name": "BLS Polymers Limited",
+    "qty": "783817",
+    "remarks": "-",
+    "symbol": "BLSPOLY",
+    "watp": "243.41"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "AIKYATA ADVISORY LLP",
+    "date": "06-Nov-2026",
+    "name": "Green Asia Impex Limited",
+    "qty": "137600",
+    "remarks": "-",
+    "symbol": "GREENASIA",
+    "watp": "72"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "GOLDMAN SACHS BANK EUROPE SE - ODI",
+    "date": "06-Nov-2026",
+    "name": "Billionbrains Garage Vn L",
+    "qty": "35518249",
+    "remarks": "-",
+    "symbol": "GROWW",
+    "watp": "215.01"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ROHAN GUPTA",
+    "date": "06-Nov-2026",
+    "name": "HGS (India) Limited",
+    "qty": "234000",
+    "remarks": "-",
+    "symbol": "HGSINDIALT",
+    "watp": "163.36"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "VIJIT GROWTH FUND",
+    "date": "06-Nov-2026",
+    "name": "HGS (India) Limited",
+    "qty": "122400",
+    "remarks": "-",
+    "symbol": "HGSINDIALT",
+    "watp": "163.29"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "NK SECURITIES RESEARCH PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "677069",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "198.74"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ALPHAGREP SECURITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "658355",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "198.37"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "DIPAN MEHTA COMMODITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "395871",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "199.61"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "JUNOMONETA FINSOL PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "630087",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "198.93"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "MICROCURVES TRADING PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "511992",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "199.1"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "QE SECURITIES LLP",
+    "date": "06-Nov-2026",
+    "name": "IKIO Technologies Limited",
+    "qty": "406157",
+    "remarks": "-",
+    "symbol": "IKIO",
+    "watp": "200.12"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ALPHAGREP SECURITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Ivalue Infosolutions Ltd",
+    "qty": "297565",
+    "remarks": "-",
+    "symbol": "IVALUE",
+    "watp": "220.46"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "NOMURA FUNDS IRELAND PLC NOMURA FUNDS IRELAND INDIA EQUITY FUND",
+    "date": "06-Nov-2026",
+    "name": "JSW Cement Limited",
+    "qty": "12000000",
+    "remarks": "-",
+    "symbol": "JSWCEMENT",
+    "watp": "120.5"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "CAPRI GLOBAL VENTURES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Sai Silks (Kalamandir) L",
+    "qty": "824810",
+    "remarks": "-",
+    "symbol": "KALAMANDIR",
+    "watp": "86.6"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ALPHAGREP SECURITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Sai Silks (Kalamandir) L",
+    "qty": "920797",
+    "remarks": "-",
+    "symbol": "KALAMANDIR",
+    "watp": "88.9"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ARIHANT CAPITAL MARKETS LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Marsons Limited",
+    "qty": "1606208",
+    "remarks": "-",
+    "symbol": "MARSONS",
+    "watp": "155.65"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ARIHANT CAPITAL MARKETS LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Motisons Jewellers Ltd",
+    "qty": "11743391",
+    "remarks": "-",
+    "symbol": "MOTISONS",
+    "watp": "14.87"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "NK SECURITIES RESEARCH PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Maha Tel Nigam Ltd.",
+    "qty": "1876632",
+    "remarks": "-",
+    "symbol": "MTNL",
+    "watp": "27.35"
+   },
+   "...[71 more items]"
+  ],
+  "BULK_DEALS": "96",
+  "SHORT_DEALS": "142",
+  "BLOCK_DEALS": "20",
+  "SHORT_DEALS_DATA": [
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ADANI ENERGY SOLUTION LTD",
+    "qty": "25",
+    "remarks": null,
+    "symbol": "ADANIENSOL",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ADANI GREEN ENERGY LTD",
+    "qty": "250",
+    "remarks": null,
+    "symbol": "ADANIGREEN",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ADANI PORT & SEZ LTD",
+    "qty": "4750",
+    "remarks": null,
+    "symbol": "ADANIPORTS",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "AEGIS VOPAK TERMINALS LTD",
+    "qty": "1",
+    "remarks": null,
+    "symbol": "AEGISVOPAK",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "AFFLE (INDIA) LIMITED",
+    "qty": "40",
+    "remarks": null,
+    "symbol": "AFFLE",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ALIVUS LIFE SCIENCES LTD",
+    "qty": "20",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ANGEL ONE LTD",
+    "qty": "25",
+    "remarks": null,
+    "symbol": "ANGELONE",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "APL APOLLO TUBES LTD",
+    "qty": "605",
+    "remarks": null,
+    "symbol": "APLAPOLLO",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "APOLLO MICRO SYSTEMS LTD",
+    "qty": "300",
+    "remarks": null,
+    "symbol": "APOLLO",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "APOLLO HOSPITALS ENTERPRISE LIMITED",
+    "qty": "3",
+    "remarks": null,
+    "symbol": "APOLLOHOSP",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ASHOK LEYLAND LTD",
+    "qty": "819",
+    "remarks": null,
+    "symbol": "ASHOKLEY",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "ATHER ENERGY LIMITED",
+    "qty": "11",
+    "remarks": null,
+    "symbol": "ATHERENERG",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "AU SMALL FINANCE BANK LIMITED",
+    "qty": "604",
+    "remarks": null,
+    "symbol": "AUBANK",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "AXIS BANK LIMITED",
+    "qty": "20",
+    "remarks": null,
+    "symbol": "AXISBANK",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BAJAJ FINSERV LIMITED",
+    "qty": "40",
+    "remarks": null,
+    "symbol": "BAJAJFINSV",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BAJAJ HINDUSTAN LTD",
+    "qty": "1299",
+    "remarks": null,
+    "symbol": "BAJAJHIND",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BAJAJ FINANCE LIMITED",
+    "qty": "76",
+    "remarks": null,
+    "symbol": "BAJFINANCE",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BALRAMPUR CHINI MILLS LTD",
+    "qty": "31",
+    "remarks": null,
+    "symbol": "BALRAMCHIN",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BHARAT ELECTRONICS LTD",
+    "qty": "80",
+    "remarks": null,
+    "symbol": "BEL",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BHARAT FORGE LTD",
+    "qty": "200",
+    "remarks": null,
+    "symbol": "BHARATFORG",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BLUE JET HEALTHCARE LTD",
+    "qty": "2000",
+    "remarks": null,
+    "symbol": "BLUEJET",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BLUE STAR LIMITED",
+    "qty": "50",
+    "remarks": null,
+    "symbol": "BLUESTARCO",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "BOSCH LIMITED",
+    "qty": "1",
+    "remarks": null,
+    "symbol": "BOSCHLTD",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "COMPUTER AGE MGMT SER LTD",
+    "qty": "110",
+    "remarks": null,
+    "symbol": "CAMS",
+    "watp": null
+   },
+   {
+    "buySell": null,
+    "clientName": null,
+    "date": "05-Nov-2026",
+    "name": "CANARA BANK",
+    "qty": "550",
+    "remarks": null,
+    "symbol": "CANBK",
+    "watp": null
+   },
+   "...[117 more items]"
+  ],
+  "BLOCK_DEALS_DATA": [
+   {
+    "buySell": "BUY",
+    "clientName": "NORGES BANK ON ACCOUNT OF THE GOVERNMENT PENSION FUND GLOBAL",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "183000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "HELIOS MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "116000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "HELIOS MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "101500",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "BANDHAN MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "600000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "PARAM CAPITAL",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "729729",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "BANDHAN MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "200000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "SUBHKAM VENTURES I PVT LTD",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "250000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "SANSHI FUND - I",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "200100",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "BANDHAN MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "17823",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "BANDHAN MUTUAL FUND",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "38148",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "SETU SECURITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "410000",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "OM PRAKASH BHAIYA",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "1565000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "ADITYA KUMAR HALWASIYA",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "8300000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "PARESH N BHAGAT",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "1565000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "CARBON RESOURCES(P) LTD.",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "1565000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "RAJIV GOENKA",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "1565000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "BUY",
+    "clientName": "JYOTIPRASAD TAPARIA",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "1565000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "SELL",
+    "clientName": "NIRMA LIMITED",
+    "date": "06-Nov-2026",
+    "name": "Alivus Life Sciences Ltd",
+    "qty": "2846300",
+    "remarks": null,
+    "symbol": "ALIVUS",
+    "watp": "1370"
+   },
+   {
+    "buySell": "SELL",
+    "clientName": "RICON COMMODITIES PRIVATE LIMITED",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "9865000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   },
+   {
+    "buySell": "SELL",
+    "clientName": "RAM CHANDRA AGARWAL",
+    "date": "06-Nov-2026",
+    "name": "V2 Retail Limited",
+    "qty": "6260000",
+    "remarks": null,
+    "symbol": "V2RETAIL",
+    "watp": "160"
+   }
+  ]
+ }
+}
