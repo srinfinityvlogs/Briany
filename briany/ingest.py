@@ -167,6 +167,8 @@ def main(argv=None):
     ap.add_argument("--recent", type=int, help="ingest the last N calendar days up to today (IST)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
+    ap.add_argument("--refresh-actions", action="store_true",
+                    help="replace the stored copy of NSE corporate actions")
     ap.add_argument("--rebuild-jumps", action="store_true", help="recompute large-move records from stored days")
     ap.add_argument("--purge-legacy", action="store_true",
                     help="delete the old px:* keys (one-time cleanup), then exit")
@@ -183,6 +185,12 @@ def main(argv=None):
         sys.exit(0 if run_check(store) else 1)
     if a.rebuild_jumps:
         print("large-move records rebuilt:", rebuild_jumps(store))
+        return
+    if a.refresh_actions:
+        from briany.nse import NseClient
+        from briany.refresh_actions import refresh_actions
+        today_ist = datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        refresh_actions(store, NseClient(min_interval=settings.nse_min_interval_seconds), today_ist)
         return
     if a.purge_legacy:
         from briany.store import purge_legacy

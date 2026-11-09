@@ -204,3 +204,21 @@ def period_return(store, symbol: str, end: str, start_target: str, actions=(), j
                             jumps=jhits, note="a one-day change of 30% or more inside this period has no matching "
                             "corporate action; it may be an unlisted split or unit change, so no return is given")
     return ReturnResult("ok", symbol, _pct(e.close, s.close), start_day, s.close, end_day, e.close)
+
+
+def load_blockers(store, symbol: str, today: str, max_age_days: int = 3):
+    """(blocking corporate actions for symbol, status). status is 'ok' or 'actions_unavailable: ...'.
+    A missing or stale copy is NEVER treated as 'no corporate actions'; callers must refuse to answer."""
+    meta = store.get_actions_meta()
+    if not meta:
+        return [], "actions_unavailable: corporate actions have never been loaded"
+    age = (Date.fromisoformat(today) - Date.fromisoformat(meta["updated"])).days
+    if age > max_age_days:
+        return [], f"actions_unavailable: corporate actions were last refreshed on {meta['updated']}"
+    return [CorporateAction(a.ex_date, a.subject) for a in store.get_actions(symbol) if a.blocking], "ok"
+
+
+def dividends_in(store, symbol: str, start: str, end: str):
+    """[(ex_date, amount_or_None)] for dividends with start < ex_date <= end. Price returns exclude these."""
+    return [(a.ex_date, a.amount) for a in store.get_actions(symbol)
+            if a.kind == "dividend" and start < a.ex_date <= end]

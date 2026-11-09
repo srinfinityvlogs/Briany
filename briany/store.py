@@ -11,11 +11,14 @@ from __future__ import annotations
 import base64
 import json
 import zlib
+from dataclasses import dataclass
 
 from briany.marketdata import PriceRow
 
 DAYS_KEY = "pxz:days"
 JUMPS_KEY = "pxz:jumps"
+ACTIONS_KEY = "pxz:actions"
+ACTIONS_META_KEY = "pxz:actions:meta"
 DAY_PREFIX = "pxz:"
 LEGACY_PATTERN = "px:*"
 
@@ -34,6 +37,30 @@ def _score(day: str) -> int:
     return int(day.replace("-", ""))
 
 
+@dataclass(frozen=True)
+class StoredAction:
+    ex_date: str
+    kind: str
+    blocking: bool
+    subject: str
+    amount: float | None = None      # dividends only
+
+
+def pack_actions(actions) -> dict:
+    """CorpAction-like objects -> {symbol: compact JSON}. Subjects are cut to 100 chars."""
+    by: dict[str, list] = {}
+    for a in actions:
+        amount = (getattr(a, "detail", None) or {}).get("amount") if a.kind == "dividend" else None
+        by.setdefault(a.symbol, []).append({"d": a.ex_date, "k": a.kind, "b": 1 if a.blocking else 0,
+                                            "s": a.subject[:100], "a": amount})
+    return {sym: json.dumps(sorted(v, key=lambda x: (x["d"], x["k"])), separators=(",", ":"))
+            for sym, v in by.items()}
+
+
+def unpack_actions(text: str) -> list:
+    return [StoredAction(x["d"], x["k"], bool(x["b"]), x["s"], x.get("a")) for x in json.loads(text)]
+
+
 def _merge_jumps(existing, new):
     """existing: [[date, pct], ...]; new: [(date, pct), ...] -> sorted, one entry per date."""
     by_date = {d: p for d, p in existing}
@@ -45,6 +72,18 @@ class MemoryStore:
     def __init__(self):
         self.days: dict[str, dict[str, PriceRow]] = {}
         self.jumps: dict[str, list] = {}
+        self.actions: dict[str, list] = {}
+        self.actions_meta = None
+
+    def set_actions(self, actions, meta):
+        self.actions = {sym: unpack_actions(v) for sym, v in pack_actions(actions).items()}
+        self.actions_meta = dict(meta)
+
+    def get_actions(self, symbol):
+        return list(self.actions.get(symbol, []))
+
+    def get_actions_meta(self):
+        return dict(self.actions_meta) if self.actions_meta else None
 
     def add_jumps(self, entries):
         grouped: dict[str, list] = {}
@@ -138,6 +177,29 @@ class RedisStore:
 
     def has_day(self, day):
         return self.r.zscore(DAYS_KEY, day) is not None
+
+    def set_actions(self, actions, meta):
+        """Replace the stored copy atomically: build under a temp key, then RENAME over it."""
+        packed, tmp = pack_actions(actions), ACTIONS_KEY + ":new"
+        items = list(packed.items())
+        pipe = self.r.pipeline(transaction=False)
+        pipe.delete(tmp)
+        for i in range(0, len(items), 500):
+            pipe.hset(tmp, mapping=dict(items[i:i + 500]))
+        if items:
+            pipe.rename(tmp, ACTIONS_KEY)
+        else:
+            pipe.delete(ACTIONS_KEY)
+        pipe.set(ACTIONS_META_KEY, json.dumps(meta))
+        pipe.execute()
+
+    def get_actions(self, symbol):
+        v = self.r.hget(ACTIONS_KEY, symbol)
+        return unpack_actions(v) if v else []
+
+    def get_actions_meta(self):
+        v = self.r.get(ACTIONS_META_KEY)
+        return json.loads(v) if v else None
 
     def add_jumps(self, entries):
         grouped: dict[str, list] = {}

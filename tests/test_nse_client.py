@@ -179,3 +179,13 @@ def test_corporate_actions_all_reports_a_bad_extra_index_but_not_a_bad_first_one
     c2, _ = client([http(403)])
     with pytest.raises(NseError, match="HTTP 403"):
         c2.corporate_actions_all()
+
+
+def test_strict_mode_refuses_partial_results():
+    good = json.dumps([rec("AAA", "05-Mar-2026", "Bonus 1:1")]).encode()
+    c, _ = client([good, http(400), good])
+    with pytest.raises(NseError, match="HTTP 400"):
+        c.corporate_actions_all(strict=True)                    # sme failed: nothing may replace the copy
+    c2, _ = client([good, good, good])
+    acts, report = c2.corporate_actions_all(strict=True)
+    assert len(acts) == 1 and set(report) == {"equities", "sme", "mf"}

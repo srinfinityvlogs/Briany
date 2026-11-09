@@ -17,6 +17,10 @@ on:
         description: "Type yes for a read-only report on what is stored (instead of ingesting)"
         required: false
         default: "no"
+      refresh_actions:
+        description: "Type yes to refresh the stored corporate-actions copy (instead of ingesting)"
+        required: false
+        default: "no"
       rebuild_jumps:
         description: "Type yes to recompute large-move records from stored days (instead of ingesting)"
         required: false
@@ -48,10 +52,13 @@ jobs:
           IN_PURGE: ${{ github.event.inputs.purge_legacy }}
           IN_CHECK: ${{ github.event.inputs.check }}
           IN_REBUILD: ${{ github.event.inputs.rebuild_jumps }}
+          IN_REFRESH: ${{ github.event.inputs.refresh_actions }}
           REDIS_MAX_MEMORY_MB: "30"     # Upstash free plan via Vercel; the server does not report it
         run: |
           if [ "$IN_CHECK" = "yes" ]; then
             python -m briany.ingest --check
+          elif [ "$IN_REFRESH" = "yes" ]; then
+            python -m briany.ingest --refresh-actions
           elif [ "$IN_REBUILD" = "yes" ]; then
             python -m briany.ingest --rebuild-jumps
           elif [ "$IN_PURGE" = "yes" ]; then
@@ -59,5 +66,7 @@ jobs:
           elif [ -n "$IN_START" ]; then
             python -m briany.ingest --start "$IN_START" --end "${IN_END:-$IN_START}"
           else
-            python -m briany.ingest --recent 7
+            python -m briany.ingest --recent 7; rc1=$?
+            python -m briany.ingest --refresh-actions; rc2=$?
+            exit $(( rc1 || rc2 ))
           fi

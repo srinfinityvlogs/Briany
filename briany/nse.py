@@ -130,11 +130,12 @@ class NseClient:
         data = self.get_json("corporates-corporateActions", self._action_params(symbol, start, end, index), TTL_ACTIONS)
         return self._wrap(P.parse_corporate_actions, data, "corporate actions")
 
-    def corporate_actions_all(self, symbol=None, start=None, end=None, indexes=ALL_ACTION_INDEXES):
+    def corporate_actions_all(self, symbol=None, start=None, end=None, indexes=ALL_ACTION_INDEXES, strict=False):
         """Merge several NSE indexes (equities plus the SME and mutual-fund/ETF listings).
         Returns (actions, report). report[index] = {'raw': n, 'parsed': m} or {'error': text}.
-        The first index must succeed; a failing later index is reported, not fatal.
-        The 'sme' and 'mf' index names are UNVERIFIED until a real run shows data."""
+        The first index must succeed; a failing later index is reported, not fatal, unless
+        strict=True (used when replacing the stored copy: partial data must never replace it).
+        Index names 'equities', 'sme' and 'mf' are verified against real data (Nov 2026)."""
         seen, out, report = set(), [], {}
         for i, index in enumerate(indexes):
             try:
@@ -142,7 +143,7 @@ class NseClient:
                                     self._action_params(symbol, start, end, index), TTL_ACTIONS)
                 parsed = self._wrap(P.parse_corporate_actions, raw, f"corporate actions ({index})")
             except NseError as e:
-                if i == 0:
+                if i == 0 or strict:
                     raise
                 report[index] = {"error": str(e)}
                 continue

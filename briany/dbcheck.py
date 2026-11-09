@@ -1,7 +1,7 @@
 """Read-only report on the stored price history. Public data only; safe to share."""
 from datetime import date, timedelta
 
-from briany.marketdata import JUMP_PCT, PREV_CLOSE_TOLERANCE, daily_move, period_return, period_start
+from briany.marketdata import JUMP_PCT, PREV_CLOSE_TOLERANCE, find_jumps, daily_move, period_return, period_start
 
 # Reliance closes copied from NSE end-of-day files you downloaded yourself (Nov 2026).
 BIG_MOVE_PCT = 30.0   # candidate splits/bonuses and uncapped movers; NOT proof of anything
@@ -66,16 +66,14 @@ def run_check(store, out=print) -> bool:
                 continue
             if row.prev_close and abs(row.prev_close - p.close) > PREV_CLOSE_TOLERANCE:
                 n += 1
-            if p.close > 0:
-                pct = (row.close - p.close) / p.close * 100
-                if abs(pct) >= BIG_MOVE_PCT:
-                    moves.append((abs(pct), day, sym, p.close, row.close, round(pct, 1)))
+        for sym, _day, pct in find_jumps(rows, prows, day, BIG_MOVE_PCT):
+            moves.append((abs(pct), day, sym, prows[sym].close, rows[sym].close, pct))
         if n:
             audit.append((day, n))
     out(f"chain audit over {max(len(days) - 1, 0)} day pairs: {len(audit)} day(s) with breaks")
     out("days with breaks (date: symbols): " + ", ".join(f"{d}: {n}" for d, n in audit[:30]))
     moves.sort(reverse=True)
-    out(f"large one-day moves (|change| >= {BIG_MOVE_PCT:g}% vs prior stored close): {len(moves)} total; "
+    out(f"large one-day moves (|change| >= {BIG_MOVE_PCT:g}%, prior close >= Rs 1, no rights entitlements): {len(moves)} total; "
         f"largest {min(len(moves), 25)}:")
     for _, day, sym, a, b, pct in moves[:25]:
         out(f"  {day} {sym}: {a} -> {b} ({pct}%)")
@@ -83,6 +81,11 @@ def run_check(store, out=print) -> bool:
     jumps = store.all_jumps() if hasattr(store, "all_jumps") else {}
     out(f"large-move records stored (>= {JUMP_PCT:g}%, prior close >= Rs 1): "
         f"{sum(len(v) for v in jumps.values())} entries for {len(jumps)} symbols")
+
+    meta = store.get_actions_meta() if hasattr(store, "get_actions_meta") else None
+    out("corporate actions stored: " + (
+        f"{meta['count']} records ({meta['blocking']} blocking) for {meta['symbols']} symbols, "
+        f"updated {meta['updated']}, window {meta['start']}..{meta['end']}" if meta else "none loaded"))
 
     m = daily_move(store, "RELIANCE")
     out(f"RELIANCE daily move: {m.status} {m.date} close {m.close} prev {m.prev_close} pct {m.pct} chain_ok {m.prev_matches_store}")

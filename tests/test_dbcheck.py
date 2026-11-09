@@ -54,3 +54,19 @@ def test_run_check_lists_large_one_day_moves():
     text = "\n".join(lines)
     assert "large one-day moves" in text and "1 total" in text
     assert "2026-11-06 SPLIT: 100.0 -> 52.0 (-48.0%)" in text
+
+
+def test_run_check_reports_stored_corporate_actions_and_ignores_entitlements():
+    s = store_with_known()
+    lines = []
+    run_check(s, out=lines.append)
+    assert "corporate actions stored: none loaded" in "\n".join(lines)
+    s.set_actions([], {"updated": "2026-11-06", "start": "2025-10-03", "end": "2027-01-05",
+                       "count": 2, "blocking": 1, "symbols": 1})
+    s.put_day("2026-11-09", {"RELIANCE": PriceRow(1321.0, 1320.0, 1), "OLA-RE": PriceRow(6.0, 10.0, 1)})
+    s.put_day("2026-11-08", {"RELIANCE": PriceRow(1320.5, 1320.0, 1), "OLA-RE": PriceRow(10.0, 10.0, 1)})
+    lines = []
+    run_check(s, out=lines.append)
+    text = "\n".join(lines)
+    assert "corporate actions stored: 2 records (1 blocking) for 1 symbols, updated 2026-11-06" in text
+    assert "OLA-RE" not in text                                   # a -40% entitlement is not a listed move
