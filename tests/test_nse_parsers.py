@@ -215,3 +215,10 @@ def test_all_company_upcoming_calendar_and_non_results_purposes():
     assert first.date == "2026-11-09" and "result" in first.purpose.lower()
     buyback = [e for e in events if e.purpose == "Buyback"]
     assert buyback and P.next_results_date(buyback, "2026-11-09") is None
+
+
+def test_skipped_records_are_described_in_the_log(caplog):
+    with caplog.at_level("WARNING", logger="briany.nse"):
+        P.parse_corporate_actions([{"symbol": "ETFX", "exDate": "-", "subject": "Dividend", "series": "EQ"},
+                                   {"exDate": "01-Jun-2026", "subject": "Bonus 1:1"}])
+    assert "skipped 2 malformed" in caplog.text and "'symbol': 'ETFX'" in caplog.text and "'exDate': '-'" in caplog.text

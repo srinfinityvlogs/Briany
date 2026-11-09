@@ -126,11 +126,13 @@ class CorpAction:
 
 
 def parse_corporate_actions(data):
-    out, skipped = [], 0
+    out, skipped, examples = [], 0, []
     for r in _records(data, "corporate actions"):
         sym, ex = clean(r.get("symbol")), parse_date(r.get("exDate"))
         if not sym or not ex:
             skipped += 1
+            if len(examples) < 3:
+                examples.append({k: str(r.get(k))[:60] for k in ("symbol", "exDate", "subject", "series") if k in r})
             continue
         subject = clean(r.get("subject"))
         kind, blocking = classify_subject(subject)
@@ -138,7 +140,7 @@ def parse_corporate_actions(data):
                               blocking, clean(r.get("series")), clean(r.get("isin")),
                               parse_detail(kind, subject)))
     if skipped:
-        log.warning("corporate actions: skipped %d malformed record(s)", skipped)
+        log.warning("corporate actions: skipped %d malformed record(s); first examples: %s", skipped, examples)
     return sorted(out, key=lambda a: (a.ex_date, a.symbol))
 
 

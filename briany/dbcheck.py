@@ -1,7 +1,7 @@
 """Read-only report on the stored price history. Public data only; safe to share."""
 from datetime import date, timedelta
 
-from briany.marketdata import JUMP_PCT, PREV_CLOSE_TOLERANCE, find_jumps, daily_move, period_return, period_start
+from briany.marketdata import JUMP_PCT, CorporateAction, PREV_CLOSE_TOLERANCE, find_jumps, daily_move, period_return, period_start
 
 # Reliance closes copied from NSE end-of-day files you downloaded yourself (Nov 2026).
 BIG_MOVE_PCT = 30.0   # candidate splits/bonuses and uncapped movers; NOT proof of anything
@@ -87,11 +87,13 @@ def run_check(store, out=print) -> bool:
         f"{meta['count']} records ({meta['blocking']} blocking) for {meta['symbols']} symbols, "
         f"updated {meta['updated']}, window {meta['start']}..{meta['end']}" if meta else "none loaded"))
 
-    m = daily_move(store, "RELIANCE")
+    stored = store.get_actions("RELIANCE") if hasattr(store, "get_actions") else []
+    blockers = [CorporateAction(a.ex_date, a.subject) for a in stored if a.blocking]
+    m = daily_move(store, "RELIANCE", actions=blockers)
     out(f"RELIANCE daily move: {m.status} {m.date} close {m.close} prev {m.prev_close} pct {m.pct} chain_ok {m.prev_matches_store}")
     for label in ("1m", "1y"):
-        r = period_return(store, "RELIANCE", last, period_start(last, label))
-        out(f"RELIANCE {label} raw return (no corporate action data yet): {r.status} {r.start_date}->{r.end_date} "
-            f"{r.start_close}->{r.end_close} pct {r.pct}")
+        r = period_return(store, "RELIANCE", last, period_start(last, label), actions=blockers)
+        out(f"RELIANCE {label} price return (corporate-action and large-move gated; excludes dividends): "
+            f"{r.status} {r.start_date}->{r.end_date} {r.start_close}->{r.end_close} pct {r.pct}")
     out("CHECK " + ("PASSED" if ok else "FAILED"))
     return ok
