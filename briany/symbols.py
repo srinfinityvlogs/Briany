@@ -124,6 +124,18 @@ class Resolver:
                 best[i.symbol] = i
         self._all = list(best.values()) + list(INDICES)
 
+    def name_prefix_count(self, token: str) -> int:
+        """How many listed companies (not indices, not rights entitlements) have this first name word."""
+        token = token.lower()
+        n = 0
+        for i in self._all:
+            if i.kind != "equity" or is_entitlement(i.symbol):
+                continue
+            words = normalize(i.name).split()
+            if words and words[0] == token:
+                n += 1
+        return n
+
     def resolve(self, query: str) -> Resolution:
         q = normalize(query)
         qc = q.replace(" ", "")

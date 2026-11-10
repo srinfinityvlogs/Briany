@@ -3,8 +3,12 @@
 Keeps headline, source, time and link. No article text, and no claim that a headline
 explains a price move. Outcomes: ok / none ("no news found") / error ("could not look").
 
-Built on the URL pattern Phase 1 verified; the feed layout (RSS 2.0 items with title,
-link, pubDate and <source>) is UNVERIFIED against a real response until news_samples runs.
+Verified against real Google News output on 9 Nov 2026: RSS 2.0 items with "<title>Headline - Source",
+<link>, <guid>, <pubDate> (GMT), HTML <description> and <source url="...">. An unknown company returns a valid
+feed with no items. The feed's own notice limits it to personal, non-commercial use.
+
+Known limit: headlines that say only "Reliance" or "RIL" are not matched for Reliance Industries, because
+Reliance Power and Reliance Infrastructure are different companies. A missed headline beats a wrong-company one.
 """
 from __future__ import annotations
 
@@ -31,8 +35,15 @@ GENERIC = frozenset({"limited", "ltd", "pvt", "private", "the", "co", "company",
 # Phase 1: small-cap queries returned quote pages ("... Share Price Live ...") instead of news.
 QUOTE_PAGE = re.compile(
     r"(share|stock) price|\blive (price|chart|quote|stock)|\b(stock|share) quote\b|\bhistorical (data|prices?)\b|"
-    r"\bprice today\b|\bprice,? (chart|news)\b|\bfinancials?,? (ratios?|results?) &|\bpe ratio\b", re.I)
-BLOCKED_SOURCES = ("screener", "trendlyne", "tickertape")        # quote/data sites (unverified list)
+    r"\bprice today\b|\bprice,? (chart|news)\b|\bfinancials?,? (ratios?|results?) &|\bpe ratio\b|"
+    r"\boption chain\b|\bseasonal returns\b|stock forecast|analyst predictions|\b(ipo )?gmp\b", re.I)
+# Judgement calls, easy to edit: social media posts and quote/auto-generated analysis sites are not news.
+# Matched on the exact domain (or a subdomain) or the exact source name, never on a substring:
+# an earlier substring rule wrongly blocked marketscreener.com, which carries real headlines.
+BLOCKED_DOMAINS = ("screener.in", "trendlyne.com", "tickertape.in", "facebook.com", "instagram.com", "x.com",
+                   "twitter.com", "linkedin.com", "youtube.com", "reddit.com", "t.me", "simplywall.st")
+BLOCKED_NAMES = frozenset({"screener", "trendlyne", "tickertape", "facebook", "instagram", "x", "twitter",
+                           "linkedin", "youtube", "reddit", "telegram", "simply wall st"})
 
 
 class NewsError(RuntimeError):
@@ -69,11 +80,25 @@ def build_query(name: str, days: int = 7) -> str:
     return f'"{clean_company_name(name)}" when:{days}d'
 
 
-def name_tokens(name: str):
-    """Up to two distinctive words of the company name that a relevant headline must contain."""
+def name_tokens(name: str, unique_first: bool = False):
+    """Distinctive words of the company name that a relevant headline must contain: the first two,
+    or only the first when that word is unique among listed companies (Tempsens, Infosys)."""
     s = re.sub(r"\([^)]*\)", " ", name or "")
     toks = [t for t in re.findall(r"[a-z0-9&]+", s.lower()) if t not in GENERIC and len(t) >= 2]
-    return toks[:2]
+    return toks[:1] if unique_first else toks[:2]
+
+
+def first_token_is_unique(resolver, name: str) -> bool:
+    """True when no other listed company starts with the same distinctive word."""
+    toks = name_tokens(name)
+    return bool(toks) and resolver.name_prefix_count(toks[0]) == 1
+
+
+def is_blocked_source(source: str, source_url: str) -> bool:
+    if (source or "").strip().lower() in BLOCKED_NAMES:
+        return True
+    host = (urllib.parse.urlsplit(source_url or "").hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in BLOCKED_DOMAINS)
 
 
 def _has_word(text: str, word: str) -> bool:
@@ -87,7 +112,12 @@ def is_relevant(title: str, tokens, symbol: str = "") -> bool:
     # A ticker alone is enough only when it is not itself a name word: RELIANCE must not match
     # "Reliance Power", while TCS may match "TCS wins deal" for Tata Consultancy Services.
     sym = (symbol or "").lower()
-    return len(sym) >= 3 and sym not in tokens and _has_word(t, sym)
+    if len(sym) < 3 or sym in tokens:
+        return False
+    if _has_word(t, sym):
+        return True
+    # long tickers are often written as two words: GOLDBEES -> "Gold BeES"
+    return len(sym) >= 6 and sym in re.sub(r"[^a-z0-9]", "", t)
 
 
 def _title_key(title: str) -> str:
@@ -128,9 +158,10 @@ def _parse_pub(text: str):
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
-def filter_items(raw, name: str, symbol: str, now: datetime, days: int = 7, limit: int = 5):
+def filter_items(raw, name: str, symbol: str, now: datetime, days: int = 7, limit: int = 5,
+                 unique_first: bool = False):
     """-> (items newest first, dropped-reason counts)."""
-    tokens, dropped, kept = name_tokens(name), {}, []
+    tokens, dropped, kept = name_tokens(name, unique_first), {}, []
 
     def drop(reason):
         dropped[reason] = dropped.get(reason, 0) + 1
@@ -146,8 +177,7 @@ def filter_items(raw, name: str, symbol: str, now: datetime, days: int = 7, limi
         title, source = r.get("title", ""), r.get("source", "")
         if source and title.endswith(" - " + source):
             title = title[: -len(source) - 3].rstrip()
-        hay = (source + " " + r.get("source_url", "")).lower()
-        if any(b in hay for b in BLOCKED_SOURCES):
+        if is_blocked_source(source, r.get("source_url", "")):
             drop("blocked_source"); continue
         if not title or not r.get("link"):
             drop("incomplete"); continue
@@ -205,7 +235,8 @@ class NewsClient:
             raise NewsError("feed larger than expected; refusing to parse")
         return body.decode("utf-8", "replace")
 
-    def fetch(self, name: str, symbol: str = "", now: datetime | None = None, days: int = 7, limit: int = 5):
+    def fetch(self, name: str, symbol: str = "", now: datetime | None = None, days: int = 7, limit: int = 5,
+              unique_first: bool = False):
         now = now or datetime.now(timezone.utc)
         query = build_query(name or symbol, days)
         stamp = now.astimezone(IST).isoformat(timespec="seconds")
@@ -218,7 +249,7 @@ class NewsClient:
                 return NewsResult("error", query, (), stamp, 0, {}, str(e))
             if self.cache is not None:
                 self.cache.set(key, raw, TTL_NEWS)
-        items, dropped = filter_items(raw, name or symbol, symbol, now, days, limit)
+        items, dropped = filter_items(raw, name or symbol, symbol, now, days, limit, unique_first)
         if items:
             return NewsResult("ok", query, items, stamp, len(raw), dropped)
         note = ("the feed returned no items" if not raw
