@@ -1,0 +1,44 @@
+name: assemble-evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "why, return or events"
+        required: true
+        default: "why"
+      query:
+        description: "Company name or NSE symbol, e.g. reliance"
+        required: true
+        default: "reliance"
+      on:
+        description: "Date YYYY-MM-DD for 'why' (empty = latest close)"
+        required: false
+        default: ""
+      period:
+        description: "For 'return': 1w, 1m, 3m, 6m, 1y or ytd"
+        required: false
+        default: "1m"
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Build the evidence packet
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          IN_MODE: ${{ github.event.inputs.mode }}
+          IN_QUERY: ${{ github.event.inputs.query }}
+          IN_ON: ${{ github.event.inputs.on }}
+          IN_PERIOD: ${{ github.event.inputs.period }}
+        run: |
+          args=(--mode "$IN_MODE" --query "$IN_QUERY")
+          if [ -n "$IN_ON" ]; then args+=(--on "$IN_ON"); fi
+          if [ "$IN_MODE" = "return" ]; then args+=(--period "${IN_PERIOD:-1m}"); fi
+          python -m briany.assemble_cli "${args[@]}"

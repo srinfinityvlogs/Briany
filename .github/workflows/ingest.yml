@@ -18,6 +18,10 @@ on:
         description: "Type yes for a read-only report on what is stored (instead of ingesting)"
         required: false
         default: "no"
+      refresh_instruments:
+        description: "Type yes to store the instrument list (names for the symbol resolver)"
+        required: false
+        default: "no"
       refresh_actions:
         description: "Type yes to refresh the stored corporate-actions copy (instead of ingesting)"
         required: false
@@ -54,10 +58,13 @@ jobs:
           IN_CHECK: ${{ github.event.inputs.check }}
           IN_REBUILD: ${{ github.event.inputs.rebuild_jumps }}
           IN_REFRESH: ${{ github.event.inputs.refresh_actions }}
+          IN_INSTR: ${{ github.event.inputs.refresh_instruments }}
           REDIS_MAX_MEMORY_MB: "30"     # Upstash free plan via Vercel; the server does not report it
         run: |
           if [ "$IN_CHECK" = "yes" ]; then
             python -m briany.ingest --check
+          elif [ "$IN_INSTR" = "yes" ]; then
+            python -m briany.ingest --refresh-instruments
           elif [ "$IN_REFRESH" = "yes" ]; then
             python -m briany.ingest --refresh-actions
           elif [ "$IN_REBUILD" = "yes" ]; then

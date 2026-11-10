@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from briany.marketdata import MAX_GAP_DAYS, DataError, find_jumps, parse_prices
 from briany.nsefiles import FetchError, fetch_bhavcopy
+from briany.symbols import parse_bhavcopy
 
 
 def redis_url_problem(url: str):
@@ -123,6 +124,8 @@ def ingest_day(store, day, fetch=fetch_bhavcopy, force=False, retries=1, sleep=t
         raise DataError(f"only {len(rows)} instruments parsed for {day}; refusing to store")
     store.put_day(parsed_day, rows)
     record_jumps(store, parsed_day)
+    if store.latest_day() == parsed_day:             # names for the symbol resolver come from the newest file
+        store.set_instruments(parsed_day, parse_bhavcopy(text)[0])
     return "stored"
 
 
@@ -167,6 +170,8 @@ def main(argv=None):
     ap.add_argument("--recent", type=int, help="ingest the last N calendar days up to today (IST)")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
+    ap.add_argument("--refresh-instruments", action="store_true",
+                    help="store the instrument list from the newest stored day's file")
     ap.add_argument("--refresh-actions", action="store_true",
                     help="replace the stored copy of NSE corporate actions")
     ap.add_argument("--rebuild-jumps", action="store_true", help="recompute large-move records from stored days")
@@ -185,6 +190,15 @@ def main(argv=None):
         sys.exit(0 if run_check(store) else 1)
     if a.rebuild_jumps:
         print("large-move records rebuilt:", rebuild_jumps(store))
+        return
+    if a.refresh_instruments:
+        day = store.latest_day()
+        text = fetch_bhavcopy(day) if day else None
+        if not text:
+            sys.exit("no stored day, or its file could not be downloaded")
+        instruments = parse_bhavcopy(text)[0]
+        store.set_instruments(day, instruments)
+        print(f"instrument list stored from the {day} file: {len(instruments)} instruments")
         return
     if a.refresh_actions:
         from briany.nse import NseClient

@@ -14,9 +14,11 @@ import zlib
 from dataclasses import dataclass
 
 from briany.marketdata import PriceRow
+from briany.symbols import Instrument
 
 DAYS_KEY = "pxz:days"
 JUMPS_KEY = "pxz:jumps"
+INSTRUMENTS_KEY = "pxz:instruments"
 ACTIONS_KEY = "pxz:actions"
 ACTIONS_META_KEY = "pxz:actions:meta"
 DAY_PREFIX = "pxz:"
@@ -44,6 +46,20 @@ class StoredAction:
     blocking: bool
     subject: str
     amount: float | None = None      # dividends only
+
+
+def pack_instruments(instruments) -> str:
+    """Compact, compressed list of tradable instruments (symbol, name, isin, series, turnover)."""
+    lines = [f"{i.symbol}|{i.name.replace('|', '/')}|{i.isin}|{i.series}|{int(i.turnover)}" for i in instruments]
+    return base64.b64encode(zlib.compress("\n".join(lines).encode("utf-8"), 9)).decode("ascii")
+
+
+def unpack_instruments(blob: str) -> list:
+    out = []
+    for line in zlib.decompress(base64.b64decode(blob)).decode("utf-8").split("\n"):
+        sym, name, isin, series, turnover = line.split("|")
+        out.append(Instrument(sym, name, isin, series, float(turnover)))
+    return out
 
 
 def pack_actions(actions) -> dict:
@@ -74,6 +90,15 @@ class MemoryStore:
         self.jumps: dict[str, list] = {}
         self.actions: dict[str, list] = {}
         self.actions_meta = None
+        self.instruments = (None, [])
+
+    def set_instruments(self, day, instruments):
+        # same packing as Redis, so both stores behave identically
+        self.instruments = (day, unpack_instruments(pack_instruments(instruments)))
+
+    def get_instruments(self):
+        day, items = self.instruments
+        return day, list(items)
 
     def set_actions(self, actions, meta):
         self.actions = {sym: unpack_actions(v) for sym, v in pack_actions(actions).items()}
@@ -177,6 +202,16 @@ class RedisStore:
 
     def has_day(self, day):
         return self.r.zscore(DAYS_KEY, day) is not None
+
+    def set_instruments(self, day, instruments):
+        self.r.set(INSTRUMENTS_KEY, json.dumps({"day": day, "blob": pack_instruments(instruments)}))
+
+    def get_instruments(self):
+        v = self.r.get(INSTRUMENTS_KEY)
+        if not v:
+            return None, []
+        d = json.loads(v)
+        return d["day"], unpack_instruments(d["blob"])
 
     def set_actions(self, actions, meta):
         """Replace the stored copy atomically: build under a temp key, then RENAME over it."""
