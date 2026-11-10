@@ -2,7 +2,8 @@ name: ingest-prices
 
 on:
   schedule:
-    - cron: "30 14 * * 1-5"      # 20:00 IST on weekdays; re-runs are safe
+    - cron: "30 14 * * 1-5"      # 20:00 IST Mon-Fri (GitHub may start scheduled runs hours late)
+    - cron: "30 21 * * 1-5"      # 03:00 IST Tue-Sat: safety net so data is in before the 9:15 open
   workflow_dispatch:
     inputs:
       start:
