@@ -11,7 +11,7 @@ on:
         description: "Company name or NSE symbol, e.g. reliance"
         required: true
         default: "reliance"
-      on:
+      date:
         description: "Date YYYY-MM-DD for 'why' (empty = latest close)"
         required: false
         default: ""
@@ -35,10 +35,10 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           IN_MODE: ${{ github.event.inputs.mode }}
           IN_QUERY: ${{ github.event.inputs.query }}
-          IN_ON: ${{ github.event.inputs.on }}
+          IN_DATE: ${{ github.event.inputs.date }}
           IN_PERIOD: ${{ github.event.inputs.period }}
         run: |
           args=(--mode "$IN_MODE" --query "$IN_QUERY")
-          if [ -n "$IN_ON" ]; then args+=(--on "$IN_ON"); fi
+          if [ -n "$IN_DATE" ]; then args+=(--on "$IN_DATE"); fi
           if [ "$IN_MODE" = "return" ]; then args+=(--period "${IN_PERIOD:-1m}"); fi
           python -m briany.assemble_cli "${args[@]}"
