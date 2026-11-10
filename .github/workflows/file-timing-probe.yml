@@ -1,0 +1,40 @@
+name: file-timing-probe
+
+# One-off measurement of when NSE publishes the end-of-day file. Read-only; no secrets.
+# The cron repeats yearly, so the script ignores every date except the one named below.
+# Delete this file once the measurement is done.
+on:
+  schedule:
+    - cron: "0 14 10 11 *"      # 19:30 IST on 10 November
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "File date YYYY-MM-DD (empty = today in IST)"
+        required: false
+        default: ""
+      until:
+        description: "Stop polling at this IST time, HH:MM"
+        required: false
+        default: "22:30"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Poll for the end-of-day file
+        env:
+          IN_DATE: ${{ github.event.inputs.date }}
+          IN_UNTIL: ${{ github.event.inputs.until }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            python -m briany.probe_publication --date 2026-11-10 --only-on 2026-11-10 --until 22:30
+          elif [ -n "$IN_DATE" ]; then
+            python -m briany.probe_publication --date "$IN_DATE" --until "${IN_UNTIL:-22:30}"
+          else
+            python -m briany.probe_publication --until "${IN_UNTIL:-22:30}"
+          fi
