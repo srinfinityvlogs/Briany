@@ -242,3 +242,37 @@ def test_events_without_a_scheduled_results_meeting_says_not_announced_not_none_
     assert "does not mean none is planned" in p.gaps[0].text
     failed = assembler(nse=FakeNse(fail=("next_results",))).events("acme")
     assert "calendar_unavailable" in [g.code for g in failed.gaps] and not failed.evidence_complete
+
+
+# ================================================================ fixes found in the first real packets
+def test_duplicate_filings_collapse_and_long_text_is_cut_at_a_word():
+    long = "word " * 80
+    nse = FakeNse(anns=[ann("2026-11-09T10:15:00", "Outcome of Board Meeting", long),
+                        ann("2026-11-09T10:15:00", "Outcome of Board Meeting", long)])       # same filing, two PDFs
+    p = assembler(nse=nse, news=FakeNews()).why_moved("acme")
+    anns = [f for f in p.factors if f.kind == "announcement"]
+    assert len(anns) == 1 and anns[0].detail.endswith("word…") and len(anns[0].detail) <= 201
+    short = assembler(nse=FakeNse(anns=[ann("2026-11-09T10:15:00", "X", "  spaced   out  text ")])).why_moved("acme")
+    assert short.factors[0].detail == "spaced out text"
+
+
+def test_board_meeting_title_prefers_the_real_purpose_in_either_order():
+    real = BoardMeeting("ACME", "2026-11-09", "Financial Results", "d", None, True)
+    intimation = BoardMeeting("ACME", "2026-11-09", "Board Meeting Intimation", "d", None, True)
+    for order in ([real, intimation], [intimation, real]):
+        p = assembler(nse=FakeNse(meetings=order)).why_moved("acme")
+        titles = [f.title for f in p.factors if f.kind == "board_meeting"]
+        assert titles == ["Results board meeting: Financial Results"]
+    only = assembler(nse=FakeNse(meetings=[intimation])).why_moved("acme")
+    assert [f.title for f in only.factors if f.kind == "board_meeting"] == ["Results board meeting (intimation)"]
+    plain = BoardMeeting("ACME", "2026-11-09", "Fund Raising", "d", None, False)
+    assert [f.title for f in assembler(nse=FakeNse(meetings=[plain])).why_moved("acme").factors
+            if f.kind == "board_meeting"] == ["Board meeting: Fund Raising"]
+
+
+def test_events_uses_the_same_full_company_name_as_the_move_packet():
+    nse = FakeNse(anns=[ann("2026-11-06T19:10:58", "Analyst Meet")])
+    moved = assembler(nse=nse).why_moved("acme")
+    events = assembler(nse=nse).events("acme")
+    assert moved.name == events.name == "Acme Industries Limited"
+    assert assembler(nse=FakeNse()).events("acme").name == "ACME INDUSTRIES LTD"        # no filings: resolver name

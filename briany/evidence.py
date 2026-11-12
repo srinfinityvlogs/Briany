@@ -9,6 +9,9 @@ Rules (decided, not guessed):
    every source was checked successfully and none qualified.
  * Missing or stale corporate actions, an unlisted large move, a corporate action in a return window,
    or missing history all REFUSE the number instead of guessing.
+
+Known limit: the window assumes every session closed at 15:30 IST. After a special weekend session
+(Budget day, Muhurat) a filing published during that session may be labelled "after the previous close".
 """
 from __future__ import annotations
 
@@ -112,6 +115,40 @@ def _aware(iso: str) -> datetime:
     return t if t.tzinfo else t.replace(tzinfo=IST)
 
 
+def _clip(text: str, n: int = 200) -> str:
+    """Whitespace-collapsed text cut at a word boundary, with an ellipsis when shortened."""
+    text = " ".join((text or "").split())
+    if len(text) <= n:
+        return text
+    return text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def _unique_announcements(anns):
+    """NSE sometimes lists the same filing twice (two PDFs, same time and category)."""
+    seen, out = set(), []
+    for a in anns:
+        key = (a.category, a.published, " ".join(a.text.split())[:80])
+        if key not in seen:
+            seen.add(key)
+            out.append(a)
+    return out
+
+
+def _meeting_title(group) -> str:
+    """NSE lists a board meeting twice (an intimation and a purpose record); prefer the real purpose."""
+    results = any(m.results_related for m in group)
+    label = "Results board meeting" if results else "Board meeting"
+    real = [m for m in group if not m.purpose.lower().startswith("board meeting intimation") and m.purpose]
+    return f"{label}: {real[0].purpose[:120]}" if real else f"{label} (intimation)"
+
+
+def _group_meetings(meetings):
+    by = {}
+    for m in meetings:
+        by.setdefault(m.meeting_date, []).append(m)
+    return by
+
+
 class Assembler:
     def __init__(self, store, nse, news, resolver, now=None):
         self.store, self.nse, self.news, self.resolver = store, nse, news, resolver
@@ -210,27 +247,26 @@ class Assembler:
 
         factors, name = [], inst.name
         try:                                                     # filings; the wide window also gives the full name
-            anns = self.nse.announcements(sym, (Date.fromisoformat(day) - timedelta(days=45)).isoformat(), day)
+            anns = _unique_announcements(
+                self.nse.announcements(sym, (Date.fromisoformat(day) - timedelta(days=45)).isoformat(), day))
             if anns:
                 name = anns[0].company or name
             for a in anns:
                 t = _aware(a.published)
                 if lo < t <= hi:
                     factors.append(Factor("announcement", a.published, timing(t), a.category, "NSE announcement",
-                                          a.text[:200], a.url))
+                                          _clip(a.text), a.url))
         except NseError:
             gaps.append(Gap("announcements_unavailable", "NSE announcements could not be checked.", "missing"))
         for a in self.store.get_actions(sym):
             if (prior is None or a.ex_date > prior) and a.ex_date <= day:
                 factors.append(Factor("corporate_action", a.ex_date, "ex-date", a.subject, "NSE corporate actions"))
         try:
-            seen = set()
-            for m in self.nse.board_meetings(sym, prior or _prev_day(day), day):
-                if (prior or _prev_day(day)) <= m.meeting_date <= day and m.meeting_date not in seen:
-                    seen.add(m.meeting_date)
-                    label = "Results board meeting" if m.results_related else "Board meeting"
-                    factors.append(Factor("board_meeting", m.meeting_date, "meeting date",
-                                          f"{label}: {m.purpose[:120]}", "NSE board meetings"))
+            first = prior or _prev_day(day)
+            for d, group in sorted(_group_meetings(self.nse.board_meetings(sym, first, day)).items()):
+                if first <= d <= day:
+                    factors.append(Factor("board_meeting", d, "meeting date", _meeting_title(group),
+                                          "NSE board meetings"))
         except NseError:
             gaps.append(Gap("board_meetings_unavailable", "NSE board meetings could not be checked.", "missing"))
 
@@ -310,21 +346,21 @@ class Assembler:
         sym, today = inst.symbol, self._today()
         factors, facts, gaps = [], [], []
         start = (Date.fromisoformat(today) - timedelta(days=days)).isoformat()
+        name = inst.name
         try:
-            for a in self.nse.announcements(sym, start, today)[:8]:
+            anns = _unique_announcements(self.nse.announcements(sym, start, today))
+            if anns:
+                name = anns[0].company or name
+            for a in anns[:8]:
                 factors.append(Factor("announcement", a.published, f"on {human_date(a.published)}", a.category,
-                                      "NSE announcement", a.text[:200], a.url))
+                                      "NSE announcement", _clip(a.text), a.url))
         except NseError:
             gaps.append(Gap("announcements_unavailable", "NSE announcements could not be checked.", "missing"))
         try:
-            seen = set()
             ahead = (Date.fromisoformat(today) + timedelta(days=60)).isoformat()
-            for m in self.nse.board_meetings(sym, start, ahead):
-                if m.meeting_date not in seen:
-                    seen.add(m.meeting_date)
-                    label = "Results board meeting" if m.results_related else "Board meeting"
-                    factors.append(Factor("board_meeting", m.meeting_date, f"on {human_date(m.meeting_date)}",
-                                          f"{label}: {m.purpose[:120]}", "NSE board meetings"))
+            for d, group in sorted(_group_meetings(self.nse.board_meetings(sym, start, ahead)).items()):
+                factors.append(Factor("board_meeting", d, f"on {human_date(d)}", _meeting_title(group),
+                                      "NSE board meetings"))
         except NseError:
             gaps.append(Gap("board_meetings_unavailable", "NSE board meetings could not be checked.", "missing"))
         if self.store.get_actions_meta():
@@ -345,5 +381,5 @@ class Assembler:
             gaps.append(Gap("calendar_unavailable", "The NSE event calendar could not be checked.", "missing"))
         factors.sort(key=lambda f: f.when, reverse=True)
         complete = not any(g.code in CHECK_FAILURES | {"calendar_unavailable", "actions_unavailable"} for g in gaps)
-        return Packet("events", "ok", sym, inst.name, self._stamp(), tuple(facts), (), tuple(factors), tuple(gaps),
+        return Packet("events", "ok", sym, name, self._stamp(), tuple(facts), (), tuple(factors), tuple(gaps),
                       complete, complete and not factors and not facts)
