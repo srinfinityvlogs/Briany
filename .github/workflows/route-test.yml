@@ -1,0 +1,47 @@
+name: route-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Type yes to run the built-in 25-question suite"
+        required: false
+        default: "yes"
+      question:
+        description: "Or a single question (used when suite is not yes)"
+        required: false
+        default: ""
+      providers:
+        description: "groq, gemini or groq,gemini"
+        required: false
+        default: "groq,gemini"
+      gemini_model:
+        description: "Optional Gemini model id (empty = discover)"
+        required: false
+        default: ""
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Route questions with the real providers
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ github.event.inputs.gemini_model }}
+          IN_SUITE: ${{ github.event.inputs.suite }}
+          IN_QUESTION: ${{ github.event.inputs.question }}
+          IN_PROVIDERS: ${{ github.event.inputs.providers }}
+        run: |
+          if [ "$IN_SUITE" = "yes" ]; then
+            python -m briany.route_cli --suite --providers "$IN_PROVIDERS"
+          else
+            python -m briany.route_cli --question "$IN_QUESTION" --providers "$IN_PROVIDERS"
+          fi
