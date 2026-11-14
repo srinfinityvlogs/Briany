@@ -116,7 +116,11 @@ def test_groq_server_errors_retry_once_and_auth_errors_do_not():
     c, t, _ = groq([resp(401, "invalid api key")])
     with pytest.raises(LlmError) as e:
         c.route("s", "u", TOOLS)
-    assert e.value.kind == "auth" and len(t.calls) == 1
+    assert e.value.kind == "auth" and len(t.calls) == 1 and "HTTP 401" in str(e.value)
+    c, t, _ = groq([resp(403, "error code: 1010   Access  denied")])                 # a block page, not a bad key
+    with pytest.raises(LlmError) as e:
+        c.route("s", "u", TOOLS)
+    assert e.value.kind == "forbidden" and "HTTP 403: error code: 1010 Access denied" in str(e.value) and len(t.calls) == 1
 
 
 def test_errors_never_contain_the_key():
@@ -174,6 +178,10 @@ def test_gemini_discovery_failures():
     with pytest.raises(LlmError) as e:
         c.route("s", "u", TOOLS)
     assert e.value.kind == "auth"
+    c, _, _ = gemini([resp(403, "blocked")])
+    with pytest.raises(LlmError) as e:
+        c.route("s", "u", TOOLS)
+    assert e.value.kind == "forbidden"
     c, _, _ = gemini([ok({"models": [{"name": "models/x", "supportedGenerationMethods": ["embedContent"]}]})], model="")
     with pytest.raises(LlmError) as e:
         c.route("s", "u", TOOLS)
@@ -259,3 +267,91 @@ def test_chain_write_with_validation():
     a, b = Fake("groq", "bad text"), Fake("gemini", "good text")
     text, who, attempts = Chain([a, b]).write("s", "u", validate=lambda t: (_ for _ in ()).throw(ValueError("x")) if "bad" in t else None)
     assert text == "good text" and who == "gemini" and attempts[0] == ("groq", "invalid_text")
+
+
+# ---------------------------------------------------------------- Gemini model failover
+def test_gemini_falls_back_to_a_second_model_when_the_first_is_overloaded():
+    models = ok({"models": [{"name": "models/gemini-3.1-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                            {"name": "models/gemini-flash-latest", "supportedGenerationMethods": ["generateContent"]}]})
+    c, t, sleeps = gemini([models, resp(503), resp(503), fcall()], model="")
+    assert c.route("s", "u", TOOLS).name == "why_moved"
+    urls = [call[0] for call in t.calls[1:]]
+    assert [u.split("/models/")[1].split(":")[0] for u in urls] == ["gemini-3.1-flash-lite"] * 2 + ["gemini-flash-latest"]
+    assert c.model == "gemini-3.1-flash-lite" and c.fallbacks == ["gemini-flash-latest"]   # next call starts at the primary again
+
+
+def test_failover_only_for_transient_errors_and_never_for_an_explicit_model():
+    models = ok({"models": [{"name": "models/gemini-3.1-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                            {"name": "models/gemini-flash-latest", "supportedGenerationMethods": ["generateContent"]}]})
+    c, t, _ = gemini([models, resp(401)], model="")
+    with pytest.raises(LlmError) as e:
+        c.route("s", "u", TOOLS)
+    assert e.value.kind == "auth" and len(t.calls) == 2                                  # a bad key is not retried elsewhere
+    c, t, _ = gemini([resp(503), resp(503)], model="gemini-3.1-flash-lite")
+    with pytest.raises(LlmError) as e:
+        c.route("s", "u", TOOLS)
+    assert e.value.kind == "server" and c.fallbacks == []
+    assert llm.ordered_gemini_models(["models/gemini-9-flash-x", "models/gemini-flash-latest", "models/x-pro"]) == [
+        "gemini-flash-latest", "gemini-9-flash-x"]
+
+
+# ---------------------------------------------------------------- transport
+def test_urllib_transport_sends_an_explicit_user_agent(monkeypatch):
+    import builtins
+    import urllib.request
+    seen = {}
+
+    class R:
+        status = 200
+        headers = {"X": "1"}
+
+        def read(self):
+            return b'{"ok": true}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        seen["ua"] = req.get_header("User-agent")
+        return R()
+    real_import = builtins.__import__
+
+    def no_requests(name, *a, **k):
+        if name == "requests":
+            raise ImportError
+        return real_import(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_requests)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    status, _h, text = llm.default_post("https://example.invalid", {"Authorization": "Bearer x"}, {"a": 1}, 5)
+    assert status == 200 and seen["ua"] == llm.USER_AGENT and "Python-urllib" not in seen["ua"]
+
+
+def test_requests_transport_is_preferred_when_installed(monkeypatch):
+    import sys
+    import types
+    calls = {}
+
+    class Boom(Exception):
+        pass
+    fake = types.ModuleType("requests")
+    fake.exceptions = types.SimpleNamespace(RequestException=Boom)
+
+    def request(method, url, headers=None, json=None, timeout=None):
+        calls.update(method=method, url=url, headers=headers, json=json, timeout=timeout)
+        return types.SimpleNamespace(status_code=429, headers={"retry-after": "3"}, text="slow down")
+    fake.request = request
+    monkeypatch.setitem(sys.modules, "requests", fake)
+    status, headers, text = llm.default_post("https://example.invalid/x", {"Authorization": "Bearer k"}, {"q": 1}, 7)
+    assert (status, headers, text) == (429, {"retry-after": "3"}, "slow down")
+    assert calls["method"] == "POST" and calls["json"] == {"q": 1} and calls["timeout"] == 7
+    assert calls["headers"]["User-Agent"] == llm.USER_AGENT and calls["headers"]["Authorization"] == "Bearer k"
+
+    def failing(*a, **k):
+        raise Boom("x")
+    fake.request = failing
+    with pytest.raises(LlmError) as e:
+        llm.default_get("https://example.invalid/x", {}, 5)
+    assert e.value.kind == "network"

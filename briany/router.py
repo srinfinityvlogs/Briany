@@ -80,6 +80,9 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
     args = args if isinstance(args, dict) else {}
     if name in ("why_moved", "period_return", "events"):
         query = str(args.get("query") or "").strip()
+        tail = re.search(r"\(([A-Za-z0-9&.-]{2,20})\)\s*$", query)          # "Tata Steel Limited (TATASTEEL)"
+        if tail:
+            query = tail.group(1)
         if not query or len(query) > 80:
             raise RouteError("query must be 1-80 characters")
         if name == "events":
@@ -260,8 +263,9 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
     if not q:
         return Routed(Route("smalltalk", {}, "rules"))
     context = context or Context()
-    ctx_line = (f"Previous company in this conversation: {context.last_name or context.last_symbol} "
-                f"({context.last_symbol})." if context.last_symbol else "No previous company in this conversation.")
+    ctx_line = (f"Previous company in this conversation: {context.last_symbol} "
+                "(for a follow-up, use exactly this symbol as the query)." if context.last_symbol
+                else "No previous company in this conversation.")
     system = SYSTEM.format(today=today, context=ctx_line)
     holder = {}
 

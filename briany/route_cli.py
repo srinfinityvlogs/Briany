@@ -69,16 +69,17 @@ def short(route) -> str:
 
 
 def run_provider(client, question, today, context):
-    ctx_line = (f"Previous company in this conversation: {context.last_name} ({context.last_symbol})."
-                if context else "No previous company in this conversation.")
+    ctx_line = (f"Previous company in this conversation: {context.last_symbol} "
+                "(for a follow-up, use exactly this symbol as the query)." if context
+                else "No previous company in this conversation.")
     system = SYSTEM.format(today=today, context=ctx_line)
     try:
         call = client.route(system, question, TOOLS)
         return validate_route(call.name, call.args, today, client.name), None
     except LlmError as e:
-        return None, e.kind
+        return None, (e.kind, str(e))
     except ValueError as e:
-        return None, f"invalid_route ({e})"
+        return None, ("invalid_route", f"invalid_route: {e}")
 
 
 def main(argv=None):
@@ -122,7 +123,7 @@ def main(argv=None):
         for name, (client, pause) in clients.items():
             route, err = run_provider(client, question, today, ctx)
             if err:
-                errors[name][err] = errors[name].get(err, 0) + 1
+                errors[name][err[0]] = errors[name].get(err[0], 0) + 1
             row[name] = (route, err)
             time.sleep(pause)
         row["rules"] = (rule_route(question, resolver, today, ctx), None)
@@ -132,9 +133,12 @@ def main(argv=None):
         for name, (route, err) in row.items():
             ok = a.suite and matches(expected, route)
             score[name] += 1 if ok else 0
-            print(f"   {name:7} {'OK ' if ok else ('-- ' if not a.suite else 'XX ')}{short(route) if route else 'ERROR ' + str(err)}")
+            print(f"   {name:7} {'OK ' if ok else ('-- ' if not a.suite else 'XX ')}{short(route) if route else 'ERROR ' + (err[1] if err else '')}")
     if a.suite:
         print(f"\n=== score out of {len(cases)} ===")
+        for name, (client, _p) in clients.items():
+            if getattr(client, "model", ""):
+                print(f"{name} model: {client.model}")
         for name, n in score.items():
             print(f"{name:7} {n}/{len(cases)}" + (f"   errors: {errors[name]}" if errors.get(name) else ""))
 

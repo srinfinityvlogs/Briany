@@ -20,6 +20,8 @@ def test_valid_routes_are_cleaned():
     assert validate_route("why_moved", {"query": "tcs", "date": ""}, TODAY).args == {"query": "tcs"}
     assert validate_route("period_return", {"query": "tcs", "period": "6M"}, TODAY).args == {"query": "tcs", "period": "6m"}
     assert validate_route("events", {"query": "infy", "junk": 1}, TODAY).args == {"query": "infy"}
+    assert validate_route("why_moved", {"query": "Tata Consultancy Services Limited (TCS)"}, TODAY).args == {"query": "TCS"}
+    assert validate_route("events", {"query": "Reliance (Jio spin-off) news"}, TODAY).args == {"query": "Reliance (Jio spin-off) news"}
     assert validate_route("unsupported", {"reason": "weird"}, TODAY).args == {"reason": "other"}
     assert validate_route("unsupported", {"reason": "advice"}, TODAY).args == {"reason": "advice"}
     assert validate_route("smalltalk", {"x": 1}, TODAY).args == {}
@@ -125,7 +127,7 @@ def test_llm_route_is_used_validated_and_labelled():
 def test_context_reaches_the_prompt():
     p = P("groq", ToolCall("smalltalk", {}))
     route_question("and last month?", Chain([p]), RESOLVER, TODAY, Context("RELIANCE", "Reliance Industries Limited"))
-    assert "Previous company in this conversation: Reliance Industries Limited (RELIANCE)" in p.system
+    assert "Previous company in this conversation: RELIANCE" in p.system and "Limited" not in p.system.split("Previous")[1]
 
 
 def test_bad_model_output_moves_to_the_next_provider():

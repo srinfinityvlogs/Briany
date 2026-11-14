@@ -21,8 +21,8 @@ GEMINI_PREFERRED = ("gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-f
 
 
 class LlmError(RuntimeError):
-    """kind: network | rate_limit | daily_limit | server | auth | bad_request | empty | no_tool_call
-    | invalid_route | all_failed"""
+    """kind: network | rate_limit | daily_limit | server | auth | forbidden | bad_request | empty
+    | no_tool_call | invalid_route | all_failed"""
 
     def __init__(self, kind: str, message: str = ""):
         super().__init__(f"{kind}: {message}" if message else kind)
@@ -43,7 +43,23 @@ def redact(text: str, *secrets) -> str:
 
 
 # ------------------------------------------------------------------ transport (injectable for tests)
+USER_AGENT = "briany/0.1 (+https://github.com/srinfinityvlogs/Briany)"
+
+
 def _http(url, headers, body, timeout, method):
+    """Uses `requests` when installed (Phase 1 verified it against Groq from GitHub Actions); otherwise urllib
+    with an explicit User-Agent, because some API front doors reject urllib's default one with a 403."""
+    headers = {"User-Agent": USER_AGENT, **headers}
+    try:
+        import requests
+    except ImportError:
+        requests = None
+    if requests is not None:
+        try:
+            r = requests.request(method, url, headers=headers, json=body, timeout=timeout)
+            return r.status_code, dict(r.headers), r.text
+        except requests.exceptions.RequestException as e:
+            raise LlmError("network", f"network error ({type(e).__name__})") from None
     data = None if body is None else json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
@@ -140,8 +156,10 @@ class GroqClient:
                     self._sleep(1)
                     continue
                 raise LlmError("server", f"HTTP {status}")
-            if status in (401, 403):
-                raise LlmError("auth", f"HTTP {status}")
+            if status == 401:
+                raise LlmError("auth", "HTTP 401: the key was rejected")
+            if status == 403:
+                raise LlmError("forbidden", f"HTTP 403: {' '.join(safe.split())[:120]}")
             raise LlmError("bad_request", f"HTTP {status}: {safe}")
         raise LlmError("server", "no response")
 
@@ -176,22 +194,25 @@ class GroqClient:
 
 
 # ------------------------------------------------------------------ Gemini
-def pick_gemini_model(names):
-    """First preferred model that exists; else any flash model; else None."""
+def ordered_gemini_models(names):
+    """Usable models in preference order: the preferred list first, then any other flash model."""
     have = [n.split("/")[-1] for n in names]
-    for want in GEMINI_PREFERRED:
-        if want in have:
-            return want
-    flash = sorted(n for n in have if "flash" in n)
-    return flash[0] if flash else None
+    ordered = [w for w in GEMINI_PREFERRED if w in have]
+    return ordered + sorted(n for n in have if "flash" in n and n not in ordered)
+
+
+def pick_gemini_model(names):
+    ordered = ordered_gemini_models(names)
+    return ordered[0] if ordered else None
 
 
 class GeminiClient:
     name = "gemini"
 
-    def __init__(self, key, model="", post=default_post, get=default_get, sleep=time.sleep, max_wait=8.0, timeout=25):
+    def __init__(self, key, model="", post=default_post, get=default_get, sleep=time.sleep, max_wait=8.0, timeout=15):
         self.key, self.model, self._post, self._get = key, model, post, get
         self._sleep, self.max_wait, self.timeout = sleep, max_wait, timeout
+        self.fallbacks = []              # filled by discovery only; an explicitly chosen model has no fallback
 
     def discover_model(self):
         status, _h, text = self._get(f"{GEMINI_API}/models?pageSize=200", {"x-goog-api-key": self.key}, self.timeout)
@@ -199,15 +220,26 @@ class GeminiClient:
             raise LlmError("auth" if status in (401, 403) else "server", f"model list HTTP {status}")
         names = [m["name"] for m in _json(text).get("models", [])
                  if "generateContent" in (m.get("supportedGenerationMethods") or [])]
-        model = pick_gemini_model(names)
-        if not model:
+        ordered = ordered_gemini_models(names)
+        if not ordered:
             raise LlmError("bad_request", "no usable Gemini model found")
-        return model
+        self.fallbacks = ordered[1:2]            # one fallback model is enough
+        return ordered[0]
 
     def _request(self, body):
         if not self.model:
             self.model = self.discover_model()
-        url = f"{GEMINI_API}/models/{self.model}:generateContent"
+        models = [self.model] + list(self.fallbacks)
+        for i, model in enumerate(models):
+            try:
+                return self._request_model(model, body)
+            except LlmError as e:
+                if e.kind in ("server", "network", "rate_limit") and i < len(models) - 1:
+                    continue                      # a second model often answers when the first is overloaded
+                raise
+
+    def _request_model(self, model, body):
+        url = f"{GEMINI_API}/models/{model}:generateContent"
         headers = {"x-goog-api-key": self.key}
         for attempt in range(2):
             status, rh, text = self._post(url, headers, body, self.timeout)
@@ -227,8 +259,10 @@ class GeminiClient:
                     self._sleep(1)
                     continue
                 raise LlmError("server", f"HTTP {status}")
-            if status in (401, 403):
-                raise LlmError("auth", f"HTTP {status}")
+            if status == 401:
+                raise LlmError("auth", "HTTP 401: the key was rejected")
+            if status == 403:
+                raise LlmError("forbidden", f"HTTP 403: {' '.join(safe.split())[:120]}")
             raise LlmError("bad_request", f"HTTP {status}: {safe}")
         raise LlmError("server", "no response")
 
