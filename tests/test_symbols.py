@@ -124,3 +124,13 @@ def test_rights_entitlements_match_only_when_named_exactly():
 def sym_of(resolver, query):
     res = resolver.resolve(query)
     return res.status, (res.best.symbol if res.best else None)
+
+
+def test_nicknames_resolve_only_when_the_target_exists_and_never_beat_an_exact_symbol():
+    uni = Resolver([Instrument("RELIANCE", "RELIANCE INDUSTRIES LTD"), Instrument("SBIN", "STATE BANK OF INDIA"),
+                    Instrument("LT", "LARSEN & TOUBRO LTD")])
+    assert sym_of(uni, "RIL") == ("exact", "RELIANCE") and sym_of(uni, "ril") == ("exact", "RELIANCE")
+    assert sym_of(uni, "SBI") == ("exact", "SBIN") and sym_of(uni, "L&T") == ("exact", "LT")
+    assert Resolver([Instrument("TCS", "TATA CONSULTANCY SERV LT")]).resolve("ril").status == "none"   # target absent
+    clash = Resolver([Instrument("RELIANCE", "RELIANCE INDUSTRIES LTD"), Instrument("RIL", "SOME OTHER RIL LTD")])
+    assert sym_of(clash, "ril") == ("exact", "RIL")                  # a real symbol always wins over a nickname

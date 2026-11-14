@@ -14,6 +14,11 @@ RESOLVER = Resolver([Instrument("RELIANCE", "RELIANCE INDUSTRIES LTD"), Instrume
 
 
 # ---------------------------------------------------------------- validation of model output
+def test_a_date_equal_to_today_means_the_latest_close():
+    assert validate_route("why_moved", {"query": "tcs", "date": TODAY}, TODAY).args == {"query": "tcs"}
+    assert validate_route("why_moved", {"query": "tcs", "date": "2026-11-09"}, TODAY).args == {"query": "tcs", "date": "2026-11-09"}
+
+
 def test_valid_routes_are_cleaned():
     assert validate_route("why_moved", {"query": "  tata steel ", "date": "2026-11-05"}, TODAY).args == {
         "query": "tata steel", "date": "2026-11-05"}
@@ -86,6 +91,8 @@ RULE_CASES = [
     ("what did FII do today", "unsupported", {"reason": "market_data"}),
     ("nifty 50 return", "unsupported", {"reason": "market_data"}),
     ("some unknown company news", "unsupported", {"reason": "company_not_found"}),
+    ("ril share price move today", "why_moved", {"query": "ril"}),
+    ("how has sbi done in the last year", "unsupported", {"reason": "company_not_found"}),   # SBIN not in this universe
     ("hello", "smalltalk", {}), ("/start", "smalltalk", {}), ("thanks", "smalltalk", {}),
 ]
 
@@ -153,3 +160,20 @@ def test_plural_flow_words_and_capability_questions():
     for q in ("what can you do", "Who are you?", "how does this work", "can you help me"):
         assert rule_route(q, RESOLVER, TODAY).tool == "smalltalk", q
     assert rule_route("what can you tell me about reliance results", RESOLVER, TODAY).tool == "events"
+
+
+def test_rules_override_a_wrong_company_not_found_but_never_a_real_refusal():
+    ctx = Context("TCS", "Tata Consultancy Services Limited")
+    wrong = P("groq", ToolCall("unsupported", {"reason": "company_not_found"}))
+    out = route_question("why did it fall?", Chain([wrong]), RESOLVER, TODAY, ctx)
+    assert out.route.tool == "why_moved" and out.route.args == {"query": "TCS"} and out.route.source == "rules:override"
+    other = P("groq", ToolCall("unsupported", {"reason": "other"}))
+    assert route_question("how has infosys done over the last year", Chain([other]), RESOLVER, TODAY
+                          ).route.args == {"query": "infosys", "period": "1y"}
+    for reason, q in (("advice", "should I buy reliance"), ("comparison", "compare tcs and infosys"),
+                      ("prediction", "will reliance rise tomorrow"), ("market_data", "what are FIIs doing")):
+        kept = route_question(q, Chain([P("groq", ToolCall("unsupported", {"reason": reason}))]), RESOLVER, TODAY)
+        assert kept.route.tool == "unsupported" and kept.route.source == "llm:groq" and kept.route.args == {"reason": reason}
+    weather = route_question("tell me about the weather in Mumbai",
+                             Chain([P("groq", ToolCall("unsupported", {"reason": "other"}))]), RESOLVER, TODAY)
+    assert weather.route.source == "llm:groq"                       # rules also find no company: the model's answer stands

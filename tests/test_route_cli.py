@@ -37,4 +37,4 @@ def test_rule_router_is_a_usable_fallback_on_the_real_suite():
     suite = build_suite(TODAY)
     passed = [q for q, e, c in suite if matches(e, rule_route(q, RESOLVER, TODAY, c))]
     failed = [q for q, e, c in suite if q not in passed]
-    assert len(passed) >= 24, f"rule router passes only {len(passed)}/25; failing: {failed}"
+    assert len(passed) >= 25, f"rule router passes only {len(passed)}/25; failing: {failed}"

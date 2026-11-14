@@ -53,7 +53,8 @@ Rules:
 3. date: only if the user named a day. Today is {today}. Resolve 'yesterday' and dates without a year against it.
 4. period_return needs a period from the allowed list; anything else (for example '2 years') is unsupported.
 5. Comparing two stocks, buy/sell advice, price predictions and market-wide data are unsupported.
-6. For a follow-up like 'and last month?' or 'what about it?', reuse the previous company when one is given.
+6. If the question names no company ('why did it fall?', 'and last month?', 'what about it?') and a previous
+   company is given below, use that previous symbol as the query. Only say company_not_found when none is given.
 {context}"""
 
 
@@ -103,7 +104,8 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
                 raise RouteError("invalid date") from None
             if d > Date.fromisoformat(today):
                 raise RouteError("date is in the future")
-            out["date"] = raw
+            if raw != today:                 # "today" means the latest close; keeps the stale-data check active
+                out["date"] = raw
         return Route("why_moved", out, source)
     if name == "unsupported":
         reason = str(args.get("reason") or "other").strip().lower()
@@ -275,6 +277,10 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
     try:
         _call, provider, attempts = chain.route(system, q, TOOLS, validate)
         r = holder["route"]
+        if r.tool == "unsupported" and r.args.get("reason") in ("company_not_found", "other"):
+            second = rule_route(q, resolver, today, context)          # the rules only answer when a company resolves
+            if second.tool in ("why_moved", "period_return", "events"):
+                return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
         return Routed(Route(r.tool, r.args, f"llm:{provider}"), tuple(attempts), False)
     except LlmError as e:
         attempts = tuple(tuple(a.split("=", 1)) for a in str(e).split(": ", 1)[-1].split(", ")) if e.kind == "all_failed" else ()

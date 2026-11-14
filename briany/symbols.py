@@ -56,6 +56,9 @@ INDICES = (
     Instrument("NIFTY 50", "NIFTY 50", kind="index"),
     Instrument("NIFTY BANK", "NIFTY BANK", kind="index"),
 )
+# Well-known nicknames that are not part of NSE's company names. Applied only when the target symbol exists
+# in the loaded universe and the query is not itself an exact symbol. Keys are normalised (see normalize()).
+NICKNAMES = {"ril": "RELIANCE", "sbi": "SBIN", "hul": "HINDUNILVR", "airtel": "BHARTIARTL", "l and t": "LT"}
 INDEX_ALIASES = {"nifty": "NIFTY 50", "nifty50": "NIFTY 50", "nifty 50": "NIFTY 50",
                  "banknifty": "NIFTY BANK", "bank nifty": "NIFTY BANK",
                  "nifty bank": "NIFTY BANK"}
@@ -145,6 +148,12 @@ class Resolver:
         if alias:
             inst = next(i for i in INDICES if i.symbol == alias)
             return Resolution("exact", query, (Match(inst, 1.0),))
+        nick = NICKNAMES.get(q)
+        if nick:
+            target = next((i for i in self._all if i.symbol == nick and i.kind == "equity"), None)
+            exact_symbol = any(re.sub(r"[^a-z0-9]", "", i.symbol.lower()) == qc for i in self._all)
+            if target and not exact_symbol:
+                return Resolution("exact", query, (Match(target, 1.0),))
         scored = [(s, i) for i in self._all if (s := _score(q, qc, i)) >= MIN_CANDIDATE_SCORE]
         scored.sort(key=lambda x: (-round(x[0], 6), -x[1].turnover, x[1].symbol))
         if not scored:
