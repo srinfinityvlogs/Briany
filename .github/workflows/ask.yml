@@ -1,0 +1,42 @@
+name: ask-bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      question:
+        description: "A question, for example: why is reliance up today"
+        required: false
+        default: "why is reliance up today"
+      suite:
+        description: "Type yes to run the built-in set of 7 questions instead"
+        required: false
+        default: "no"
+      gemini_model:
+        description: "Optional Gemini model id (empty = discover)"
+        required: false
+        default: ""
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Ask the bot
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ github.event.inputs.gemini_model }}
+          IN_QUESTION: ${{ github.event.inputs.question }}
+          IN_SUITE: ${{ github.event.inputs.suite }}
+        run: |
+          if [ "$IN_SUITE" = "yes" ]; then
+            python -m briany.ask_cli --suite
+          else
+            python -m briany.ask_cli --question "$IN_QUESTION"
+          fi

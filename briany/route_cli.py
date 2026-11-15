@@ -48,7 +48,7 @@ def build_suite(today: str):
         ("tell me about the weather in Mumbai", {"tool": U}, None),
         ("and last month?", {"tool": R, "query_has": "reliance", "period": "1m"}, rel),
         ("why did it fall?", {"tool": W, "query_has": "tcs"}, tcs),
-        ("Reliance kyun gira 5 nov ko", {"tool": W, "query_has": "reliance", "date": nov5}, None),
+        ("what moved HDFC Bank on 5 Nov", {"tool": W, "query_has": "hdfc", "date": nov5}, None),
     ]
 
 
