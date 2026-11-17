@@ -355,3 +355,13 @@ def test_requests_transport_is_preferred_when_installed(monkeypatch):
     with pytest.raises(LlmError) as e:
         llm.default_get("https://example.invalid/x", {}, 5)
     assert e.value.kind == "network"
+
+
+def test_all_failed_errors_carry_the_attempts_for_logging():
+    chain = Chain([Fake("groq", error=LlmError("rate_limit")), Fake("gemini", ToolCall("x", {}))])
+    with pytest.raises(LlmError) as e:
+        chain.route("s", "u", TOOLS, validate=lambda c: (_ for _ in ()).throw(ValueError("no")))
+    assert e.value.attempts == (("groq", "rate_limit"), ("gemini", "invalid_route"))
+    with pytest.raises(LlmError) as e2:
+        Chain([Fake("groq", error=LlmError("empty"))]).write("s", "u")
+    assert e2.value.attempts == (("groq", "empty"),)

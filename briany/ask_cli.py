@@ -54,6 +54,8 @@ def show(question, ans):
           + f" | kind={ans.kind}")
     if ans.routed and ans.routed.attempts:
         print("--- debug: router attempts=" + str(list(ans.routed.attempts)))
+    if ans.write_attempts:
+        print("--- debug: writer attempts=" + str(list(ans.write_attempts)))
     if ans.problems:
         print("--- debug: rejected model text because: " + "; ".join(ans.problems[:6]))
 

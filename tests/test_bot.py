@@ -1,20 +1,22 @@
+import json
+
 import pytest
 
 from briany import bot as B
-from briany.answer import WRITER_SYSTEM, fallback_text
+from briany.answer import SUMMARY_SYSTEM, fallback_text
 from briany.bot import Answer, Bot
 from briany.llm import Chain, LlmError, ToolCall
+from briany.nse_parsers import BoardMeeting, EventItem
 from briany.router import Context
 from test_evidence import (FULL_NEWS, FULL_NSE, NOW, RESOLVER, FakeNews, FakeNse, act, ann, assembler, build_store)
-from briany.nse_parsers import BoardMeeting, EventItem
 
 DIVIDEND = [act("2026-11-09", "dividend", "Dividend - Rs 5 Per Share", False)]
-GOOD = ("Acme Industries Limited (ACME) closed at ₹110.00 on 9 Nov 2026, up 8.91% from the previous close of ₹101.00.\n"
-        "The median listed stock moved +0.50% that day, with 151 stocks up and 50 down.\n"
-        "Possible contributing factors (not confirmed causes): an NSE filing about an analyst meet after the previous "
-        "close, a dividend ex-date, a results board meeting and news from Reuters before the open.")
-BAD_CAUSAL = GOOD + "\nThe rise was because of the analyst meet."
-BAD_NUMBER = GOOD.replace("8.91%", "9.5%")
+SUMMARY = ("Acme Industries Limited (ACME) closed at ₹110.00 on 9 Nov 2026, up 8.91% from the previous close of ₹101.00.\n"
+           "The median listed stock moved +0.50% that day, with 151 stocks up and 50 down.")
+BAD_CAUSAL = SUMMARY + " The rise was because of the analyst meet."
+BAD_NUMBER = SUMMARY.replace("8.91%", "9.5%")
+NO_DATE = SUMMARY.replace(" on 9 Nov 2026", "")
+ABOUT_NEWS = SUMMARY + " News from Reuters is also relevant."
 
 
 class FP:
@@ -30,7 +32,7 @@ class FP:
         return self.call
 
     def write(self, system, user, max_tokens=500):
-        self.write_calls.append((system, user))
+        self.write_calls.append((system, user, max_tokens))
         if self.write_error:
             raise self.write_error
         return self.texts.pop(0)
@@ -44,36 +46,51 @@ def bot(providers, store=None, nse=None, news=None):
 WHY = ToolCall("why_moved", {"query": "acme"})
 
 
-# ================================================================ the model's text, when it passes
-def test_valid_model_text_is_used_and_the_footer_is_added_by_code():
-    p = FP("groq", WHY, [GOOD])
+# ================================================================ the model writes the summary; code adds the rest
+def test_valid_summary_is_used_and_code_adds_factors_caveats_and_footer():
+    p = FP("groq", WHY, [SUMMARY])
     ans = bot([p]).ask("why is acme up today")
     assert ans.writer == "llm:groq" and ans.kind == "move" and ans.problems == ()
     body, footer = ans.text.split("\n\n", 1)
-    assert body == GOOD and footer.startswith("Sources: NSE end-of-day file") and "Information only" in footer
-    assert ans.route.source == "llm:groq" and ans.context == Context("ACME", "Acme Industries Limited")
-    assert p.write_calls[0][0] == WRITER_SYSTEM and p.write_calls[0][1].startswith("Packet:\n")
+    assert body.startswith(SUMMARY) and "Possible contributing factors (not confirmed causes):" in body
+    assert "News (Reuters)" in body and "Outcome of Board Meeting" in body and "Corporate action, ex-date" in body
+    assert footer.startswith("Sources: NSE end-of-day file") and "Information only" in footer
+    assert ans.write_attempts == (("groq", "ok"),) and ans.route.source == "llm:groq"
+    assert ans.context == Context("ACME", "Acme Industries Limited")
 
 
-def test_rejected_text_moves_to_the_next_provider_and_is_logged_but_never_sent():
-    a, b = FP("groq", WHY, [BAD_CAUSAL]), FP("gemini", WHY, [GOOD])
+def test_the_writer_gets_a_small_prompt_with_facts_only():
+    p = FP("groq", WHY, [SUMMARY])
+    bot([p]).ask("why is acme up today")
+    system, user, max_tokens = p.write_calls[0]
+    assert system == SUMMARY_SYSTEM and max_tokens >= 900                                # room for hidden reasoning tokens
+    payload = json.loads(user.split("Packet:\n", 1)[1].rsplit("\nWrite", 1)[0])
+    assert set(payload) == {"company", "symbol", "facts", "market_context"} and "http" not in user
+
+
+def test_rejected_summary_moves_to_the_next_provider_and_is_logged_but_never_sent():
+    a, b = FP("groq", WHY, [BAD_CAUSAL]), FP("gemini", WHY, [SUMMARY])
     ans = bot([a, b]).ask("why is acme up today")
     assert ans.writer == "llm:gemini" and any("causal wording" in x for x in ans.problems)
-    assert "because" not in ans.text.lower()
+    assert ans.write_attempts == (("groq", "invalid_text"), ("gemini", "ok")) and "because" not in ans.text.lower()
 
 
-def test_when_every_text_is_rejected_the_code_built_message_goes_out():
-    ans = bot([FP("groq", WHY, [BAD_CAUSAL]), FP("gemini", WHY, [BAD_NUMBER])]).ask("why is acme up today")
-    assert ans.writer == "fallback" and "number not in the data: 9.5%" in ans.problems
-    body = ans.text.split("\n\n")[0]
-    assert body == fallback_text(ans.packet) and body.startswith("Acme Industries Limited (ACME) closed at ₹110.00")
-    assert "9.5" not in ans.text and "because" not in ans.text.lower()
+@pytest.mark.parametrize("bad,reason", [
+    (BAD_NUMBER, "number not in the data: 9.5%"),
+    (NO_DATE, "missing key figure: the date of the close"),
+    (ABOUT_NEWS, "must not discuss factors, filings or news")])
+def test_every_kind_of_bad_summary_ends_in_the_code_built_message(bad, reason):
+    ans = bot([FP("groq", WHY, [bad]), FP("gemini", WHY, [bad])]).ask("why is acme up today")
+    assert ans.writer == "fallback" and any(reason in x for x in ans.problems)
+    assert ans.text.split("\n\n")[0] == fallback_text(ans.packet)
+    assert ans.write_attempts == (("groq", "invalid_text"), ("gemini", "invalid_text"))
 
 
-def test_provider_failures_during_writing_also_fall_back():
+def test_provider_failures_during_writing_also_fall_back_and_are_recorded():
     ans = bot([FP("groq", WHY, write_error=LlmError("rate_limit")), FP("gemini", WHY, write_error=LlmError("server"))]
               ).ask("why is acme up today")
     assert ans.writer == "fallback" and ans.problems == () and ans.text.startswith("Acme Industries Limited")
+    assert ans.write_attempts == (("groq", "rate_limit"), ("gemini", "server"))
 
 
 def test_with_no_working_provider_rules_route_and_code_writes():
@@ -84,11 +101,28 @@ def test_with_no_working_provider_rules_route_and_code_writes():
     assert ans.writer == "fallback" and "closed at ₹110.00" in ans.text
 
 
-def test_missing_caveat_in_model_text_is_rejected():
-    text = "Acme Industries Limited (ACME) closed at ₹110.00 on 9 Nov 2026, up 8.91% from the previous close of ₹101.00."
-    ans = bot([FP("groq", WHY, [text])], store=build_store(), nse=FakeNse(), news=FakeNews()).ask("why is acme up")
-    assert ans.writer == "fallback" and any("no clear evidence found" in x for x in ans.problems)
-    assert "No clear evidence found." in ans.text
+def test_a_summary_cannot_drop_the_caveats_because_code_writes_them():
+    ans = bot([FP("groq", WHY, [SUMMARY])], store=build_store(), nse=FakeNse(), news=FakeNews()).ask("why is acme up")
+    assert ans.writer == "llm:groq" and "No clear evidence found." in ans.text
+    failed = bot([FP("groq", WHY, [SUMMARY])], nse=FakeNse(fail=("announcements",)), news=FakeNews(status="error")
+                 ).ask("why is acme up")
+    assert failed.writer == "llm:groq" and failed.text.count("could not be checked") >= 2
+
+
+def test_the_assembled_message_gets_a_last_check(monkeypatch):
+    monkeypatch.setattr(B, "compose_move", lambda p, s, notes=(), shown_out=None: "Acme closed at ₹110.00 and ₹777.00.")
+    ans = bot([FP("groq", WHY, [SUMMARY])]).ask("why is acme up today")
+    assert ans.writer == "fallback" and any(x.startswith("assembled message:") for x in ans.problems)
+    assert "777" not in ans.text
+
+
+def test_a_premise_the_data_contradicts_is_called_out_in_code():
+    ans = bot([FP("groq", WHY, [SUMMARY])]).ask("why is acme down today")
+    lines = ans.text.splitlines()
+    assert lines[2] == "Note: the change from the previous close was +8.91%, which is not a decrease."
+    code = bot([FP("groq", WHY, write_error=LlmError("server"))]).ask("why is acme down today")
+    assert "which is not a decrease." in code.text
+    assert "Note:" not in bot([FP("groq", WHY, [SUMMARY])]).ask("why is acme up today").text
 
 
 # ================================================================ answers the model never writes
@@ -117,6 +151,7 @@ def test_returns_and_events_are_built_by_code_without_the_model():
     ev = bot([p2], nse=nse).ask("any announcements from acme")
     assert ev.kind == "events" and ev.writer == "code" and p2.write_calls == []
     assert "Next results meeting: 20 Nov 2026." in ev.text
+    assert "Prices are NSE" not in ev.text                                    # an events answer carries no price note
 
 
 def test_clarifications_and_refusals_never_reach_the_model():
@@ -130,16 +165,19 @@ def test_clarifications_and_refusals_never_reach_the_model():
     assert refused.writer == "code" and q.write_calls == []
 
 
-def test_the_writer_never_sees_urls_and_gets_the_required_phrases():
-    p = FP("groq", WHY, ["unusable text"])
-    bot([p], store=build_store(), nse=FakeNse(), news=FakeNews()).ask("why is acme up")
-    user = p.write_calls[0][1]
-    assert "http" not in user and '"must_include": ["no clear evidence found"]' in user
+def test_a_verified_split_day_is_stated_once_and_not_as_a_hedged_factor():
+    store = build_store({"2026-11-06": (101.0, 100.0), "2026-11-09": (50.5, 101.0)},
+                        actions=[act("2026-11-09", "bonus", "Bonus 1:1", True)])
+    summary = ("Acme Industries Limited (ACME) closed at ₹50.50 on 9 Nov 2026; the previous close was ₹101.00 "
+               "(unadjusted).")
+    ans = bot([FP("groq", WHY, [summary])], store=store, nse=FakeNse(), news=FakeNews()).ask("why did acme fall")
+    assert ans.writer == "llm:groq" and ans.text.count("Bonus 1:1") == 1 and "Possible contributing" not in ans.text
+    assert "%" not in ans.text.split("\n\n")[0].split("Market that day")[0]                  # no raw -50% is ever shown
 
 
 # ================================================================ robustness
 def test_follow_up_questions_reuse_the_previous_company():
-    first = bot([FP("groq", WHY, [GOOD])]).ask("why is acme up today")
+    first = bot([FP("groq", WHY, [SUMMARY])]).ask("why is acme up today")
     store = build_store({"2026-10-09": (90.0, 89.0), "2026-11-09": (110.0, 109.0)}, fillers=0)
     follow = bot([FP("groq", ToolCall("period_return", {"query": "ACME", "period": "1m"}))], store=store
                  ).ask("and last month?", first.context)
@@ -152,5 +190,19 @@ def test_an_unexpected_error_still_produces_a_message_and_logs_only_the_type():
             raise RuntimeError("secret internal detail")
     ans = Bot(Boom(), Chain([FP("groq", WHY)]), RESOLVER, now=lambda: NOW).ask("why is acme up")
     assert ans.text == B.ERROR_TEXT and ans.writer == "error" and ans.problems == ("RuntimeError",)
-    assert "secret" not in ans.text and ans.context == Context()
-    assert isinstance(ans, Answer)
+    assert "secret" not in ans.text and ans.context == Context() and isinstance(ans, Answer)
+
+
+def test_the_footer_lists_only_what_the_message_showed():
+    nse = FakeNse(anns=[ann(f"2026-11-09T0{i}:30:00", f"Category {i}") for i in range(1, 7)],
+                  meetings=[BoardMeeting("ACME", "2026-11-09", "Financial Results", "d", None, True)])
+    for i, a in enumerate(nse.anns):                                      # give every filing its own link
+        object.__setattr__(a, "url", f"https://nsearchives.nseindia.com/f{i}.pdf")
+    ans = bot([FP("groq", WHY, [SUMMARY])], store=build_store(actions=DIVIDEND), nse=nse, news=FakeNews()).ask("why is acme up")
+    body, footer = ans.text.split("\n\n", 1)
+    shown_links = [l for l in footer.splitlines() if l.startswith("Link: ")]
+    assert 1 <= len(shown_links) <= 3
+    for line in shown_links:
+        label = line[len("Link: "):].rsplit(" https://", 1)[0]
+        assert label in body                                              # every linked item is in the message
+    assert "(plus " in body and body.count("- NSE filing") < 6

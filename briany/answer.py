@@ -8,12 +8,13 @@ English only.
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from briany.evidence import IST, MONTHS, Packet, human_date
+from briany.evidence import IST, MONTHS, PRICE_SOURCE, Packet, human_date
 
 MAX_LINES = 10
 MAX_CHARS = 1400
@@ -61,6 +62,11 @@ URL = re.compile(r"https?://\S+")
 BULLET = re.compile(r"^\s*(?:[-•*]|\d+[.)])\s+", re.M)
 ALLCAPS = re.compile(r"\b[A-Z][A-Z0-9&-]{1,11}\b")
 
+
+SUMMARY_BANNED = re.compile(r"\b(factors?|filings?|announcements?|news|headlines?|board meetings?)\b", re.I)
+ASKS_UP = re.compile(r"\b(up|rise|rising|rose|jump\w*|surg\w*|rall\w*|gain\w*|higher)\b", re.I)
+ASKS_DOWN = re.compile(r"\b(down|fall|falling|fell|drop\w*|crash\w*|plung\w*|slump\w*|tank\w*|lower)\b", re.I)
+MAX_LINK_CHARS = 200              # longer links (Google News) are not printed in plain text
 
 # ------------------------------------------------------------------ packet helpers
 def _dec(x) -> Decimal | None:
@@ -122,26 +128,24 @@ def required_phrases(p: Packet) -> list:
 
 
 # ------------------------------------------------------------------ validator
-def validate_text(text: str, p: Packet) -> list:
-    """Problems found in `text` against the packet (empty list = acceptable)."""
-    problems = []
-    text = (text or "").strip()
-    lines = [l for l in text.splitlines() if l.strip()]
-    if not text:
-        return ["empty text"]
-    if len(lines) > MAX_LINES or len(text) > MAX_CHARS:
-        problems.append(f"too long ({len(lines)} lines, {len(text)} characters)")
-    low = text.lower()
-    blob = packet_blob(p)
+def shown_candidates(p: Packet):
+    """Factors the message may list. A corporate action already stated as a verified fact (the ex-date caveat)
+    is not repeated as a hedged 'possible factor'."""
+    if any(g.code == "corporate_action_on_date" for g in p.gaps):
+        return [f for f in p.factors if f.kind != "corporate_action"]
+    return list(p.factors)
 
+
+def _safety_problems(text: str, p: Packet):
+    """Wrong content: invented numbers, dates, clock times, tickers; causal wording; advice; wrong direction.
+    Returns (problems, set_of_numbers_seen)."""
+    problems = []
+    blob = packet_blob(p)
     if CAUSAL.search(text):
         problems.append(f"causal wording: {CAUSAL.search(text).group(0)!r}")
     if ADVICE.search(text):
         problems.append(f"advice or prediction: {ADVICE.search(text).group(0)!r}")
-    if p.kind == "move" and p.factors and not POSSIBLE.search(text):
-        problems.append("factors must be described as possible contributing factors")
 
-    # dates: every mentioned date must be a packet date (with year, when a year is given)
     packet_dates = _dates_in(blob) | {tuple(int(x) for x in f.date.split("-")) for f in p.facts + p.context if f.date}
     packet_dates |= {tuple(int(x) for x in f.when[:10].split("-")) for f in p.factors if f.when}
     for y, m, d in _dates_in(text):
@@ -150,16 +154,45 @@ def validate_text(text: str, p: Packet) -> list:
     if CLOCK.search(text):
         problems.append(f"clock time {CLOCK.search(text).group(0)!r}: times are added by code, not the text")
 
-    # numbers
     body = BULLET.sub("", _strip_dates(URL.sub(" ", text)))
-    allowed = _allowed_numbers(p, blob)
-    seen = set()
+    allowed, seen = _allowed_numbers(p, blob), set()
     for tok in NUMBER.findall(body):
         d = _dec(tok)
         if d is not None:
             seen.add(d)
             if d not in allowed:
                 problems.append(f"number not in the data: {tok.strip()}")
+
+    chg = main_change(p)
+    if chg and chg.raw is not None and chg.raw != 0:                      # direction must agree with the sign
+        target = abs(Decimal(str(chg.raw)))
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
+            if any(_dec(t) == target for t in NUMBER.findall(sentence)):
+                if chg.raw > 0 and DOWN_WORDS.search(sentence) and not UP_WORDS.search(sentence):
+                    problems.append("direction contradicts the data (the price rose)")
+                if chg.raw < 0 and UP_WORDS.search(sentence) and not DOWN_WORDS.search(sentence):
+                    problems.append("direction contradicts the data (the price fell)")
+
+    blob_low = blob.lower()                                               # tickers and names must come from the packet
+    for tok in set(ALLCAPS.findall(text)):
+        if tok not in WHITELIST_CAPS and not re.search(rf"(?<![a-z0-9]){re.escape(tok.lower())}(?![a-z0-9])", blob_low):
+            problems.append(f"name or ticker not in the data: {tok}")
+    return problems, seen
+
+
+def validate_text(text: str, p: Packet) -> list:
+    """Problems in a WHOLE message against the packet (empty list = acceptable)."""
+    text = (text or "").strip()
+    if not text:
+        return ["empty text"]
+    problems = []
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) > MAX_LINES or len(text) > MAX_CHARS:
+        problems.append(f"too long ({len(lines)} lines, {len(text)} characters)")
+    safety, seen = _safety_problems(text, p)
+    problems += safety
+    if p.kind == "move" and shown_candidates(p) and not POSSIBLE.search(text):
+        problems.append("factors must be described as possible contributing factors")
     chg = main_change(p)
     if p.kind == "move" and p.status == "ok":
         close = p.facts[0] if p.facts else None
@@ -170,27 +203,53 @@ def validate_text(text: str, p: Packet) -> list:
         ret = next((f for f in p.facts if f.label == "Price return"), None)
         if ret and _dec(ret.value) not in seen:
             problems.append("missing key figure: Price return")
-
-    # direction must agree with the sign of the change
-    if chg and chg.raw is not None and chg.raw != 0:
-        target = abs(Decimal(str(chg.raw)))
-        for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
-            if any(_dec(t) == target for t in NUMBER.findall(sentence)):
-                if chg.raw > 0 and DOWN_WORDS.search(sentence) and not UP_WORDS.search(sentence):
-                    problems.append("direction contradicts the data (the price rose)")
-                if chg.raw < 0 and UP_WORDS.search(sentence) and not DOWN_WORDS.search(sentence):
-                    problems.append("direction contradicts the data (the price fell)")
-
-    # tickers / all-caps names must come from the packet
-    blob_low = blob.lower()
-    for tok in set(ALLCAPS.findall(text)):
-        if tok not in WHITELIST_CAPS and not re.search(rf"(?<![a-z0-9]){re.escape(tok.lower())}(?![a-z0-9])", blob_low):
-            problems.append(f"name or ticker not in the data: {tok}")
-
+    low = text.lower()
     for code, phrase in ((g.code, REQUIRED_PHRASES[g.code]) for g in p.gaps if g.code in REQUIRED_PHRASES):
         if phrase not in low:
             problems.append(f"required caveat missing ({code}): include {phrase!r}")
     return problems
+
+
+def validate_summary(text: str, p: Packet) -> list:
+    """Problems in the model-written OPENING SUMMARY of a move. It must state the close, its date and the change,
+    and must not discuss factors, filings or news (code adds those)."""
+    text = (text or "").strip()
+    if not text:
+        return ["empty text"]
+    if p.kind != "move" or p.status != "ok" or not p.facts:
+        return ["not a move packet"]
+    problems = []
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) > 3 or len(text) > 500:
+        problems.append(f"summary too long ({len(lines)} lines, {len(text)} characters)")
+    if SUMMARY_BANNED.search(text):
+        problems.append("the summary must not discuss factors, filings or news (code adds them)")
+    safety, seen = _safety_problems(text, p)
+    problems += safety
+    close, chg = p.facts[0], main_change(p)
+    if abs(Decimal(str(close.raw))) not in seen and _dec(close.value) not in seen:
+        problems.append("missing key figure: the official close")
+    cy, cm, cd = (int(x) for x in close.date.split("-"))
+    if not any(m == cm and d == cd and (y is None or y == cy) for y, m, d in _dates_in(text)):
+        problems.append("missing key figure: the date of the close")
+    if chg and chg.raw is not None and abs(Decimal(str(chg.raw))) not in seen and _dec(chg.value) not in seen:
+        problems.append("missing key figure: the change from the previous close")
+    return problems
+
+
+def premise_note(question: str, p: Packet) -> list:
+    """One code-written line when the question assumes a direction the data does not show."""
+    chg = main_change(p)
+    if p.kind != "move" or p.status != "ok" or chg is None or chg.raw is None:
+        return []
+    up, down = bool(ASKS_UP.search(question or "")), bool(ASKS_DOWN.search(question or ""))
+    if up == down:
+        return []
+    if up and chg.raw <= 0:
+        return [f"Note: the change from the previous close was {chg.value}, which is not an increase."]
+    if down and chg.raw >= 0:
+        return [f"Note: the change from the previous close was {chg.value}, which is not a decrease."]
+    return []
 
 
 # ------------------------------------------------------------------ deterministic text
@@ -219,7 +278,11 @@ def select_factors(factors, limit=MAX_FACTORS_SHOWN):
 
 def _factor_line(f) -> str:
     label = KIND_LABEL.get(f.kind) or ("News (" + f.source.split(": ", 1)[-1] + ")" if f.kind == "news" else f.kind)
-    return f"- {label}, {f.timing}: {_clip(f.title)}"
+    title = _clip(f.title)
+    detail = " ".join((f.detail or "").split())
+    if f.kind == "announcement" and detail and title.lower() not in detail.lower():
+        title = f"{title} - {_clip(detail, 80)}"                  # NSE categories are often just 'Updates'
+    return f"- {label}, {f.timing}: {title}"
 
 
 def _gap_lines(p: Packet, skip=()):
@@ -231,7 +294,7 @@ def _gap_lines(p: Packet, skip=()):
     return out
 
 
-def fallback_text(p: Packet) -> str:
+def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
     """Built from the packet alone. Passes validate_text() by construction (tested for every packet type)."""
     if p.status == "clarify":
         return p.gaps[0].text if p.gaps else "Which company do you mean? Please give the company name or NSE symbol."
@@ -241,13 +304,20 @@ def fallback_text(p: Packet) -> str:
         lines += [f"- {f.label}: {f.value}" + (f" ({human_date(f.date)})" if f.date else "") for f in p.facts[:3]]
         return "\n".join(lines[:MAX_LINES])
     if p.kind == "move":
-        return "\n".join(_move_lines(p, who)[:MAX_LINES])
+        return "\n".join(_move_lines(p, who, None, notes, shown_out)[:MAX_LINES])
     if p.kind == "return":
         return "\n".join(_return_lines(p, who)[:MAX_LINES])
-    return "\n".join(_events_lines(p, who)[:MAX_LINES])
+    return "\n".join(_events_lines(p, who, shown_out)[:MAX_LINES])
 
 
-def _move_lines(p: Packet, who: str):
+def compose_move(p: Packet, summary_text: str, notes=(), shown_out=None) -> str:
+    """Model-written opening summary + code-written factors and caveats."""
+    who = f"{p.name} ({p.symbol})" if p.symbol else "this company"
+    summary = [l.strip() for l in summary_text.strip().splitlines() if l.strip()]
+    return "\n".join(_move_lines(p, who, summary, notes, shown_out)[:MAX_LINES])
+
+
+def _move_head(p: Packet, who: str):
     close, prev, chg = p.facts[0], p.facts[1], main_change(p)
     head = [f"{who} closed at {close.value} on {human_date(close.date)}."]
     head.append(f"That is {chg.value} from the previous close of {prev.value}." if chg else
@@ -257,27 +327,36 @@ def _move_lines(p: Packet, who: str):
     market = ([f"Market that day: {med.label.lower()} {med.value}" + (f"; stocks up / down {ud.value}." if ud else ".")]
               if med else [])
     flows = [f"{f.label} {f.value}" for f in p.context if "net buying" in f.label]
-    flows = ["; ".join(flows) + "."] if flows else []
-    gaps = _gap_lines(p)
+    return head, market, (["; ".join(flows) + "."] if flows else [])
+
+
+def _move_lines(p: Packet, who: str, summary=None, notes=(), shown_out=None):
+    head, market, flows = _move_head(p, who)
+    gaps, factors = _gap_lines(p), shown_candidates(p)
+    picked = []
 
     def factor_block(k, with_plus):
-        shown = select_factors(p.factors, k) if k else []
+        shown = select_factors(factors, k) if k else []
+        picked[:] = shown
         if not shown:
             return []
         if len(shown) == 1:                                   # header and item merged into one line
-            line = _factor_line(shown[0])[2:]
-            more = f" (plus {len(p.factors) - 1} more not shown)" if with_plus and len(p.factors) > 1 else ""
-            return ["Possible contributing factor (not a confirmed cause), " + line + more]
-        extra = [f"(plus {len(p.factors) - len(shown)} more not shown)"] if with_plus and len(p.factors) > len(shown) else []
+            more = f" (plus {len(factors) - 1} more not shown)" if with_plus and len(factors) > 1 else ""
+            return ["Possible contributing factor (not a confirmed cause), " + _factor_line(shown[0])[2:] + more]
+        extra = [f"(plus {len(factors) - len(shown)} more not shown)"] if with_plus and len(factors) > len(shown) else []
         return ["Possible contributing factors (not confirmed causes):"] + [_factor_line(f) for f in shown] + extra
 
     # preference order: keep the factors and the context; give up the extras first; the caveats are never cut
     plans = [(k, plus, True, True) for k in range(MAX_FACTORS_SHOWN, 0, -1) for plus in (True, False)]
     plans += [(1, False, True, False), (1, False, False, False), (0, False, False, False)]
     for k, plus, with_market, with_flows in plans:
-        lines = head + (market if with_market else []) + (flows if with_flows else []) + factor_block(k, plus)
+        core = (list(summary) if summary is not None else
+                head + (market if with_market else []) + (flows if with_flows else []))
+        lines = core + list(notes) + factor_block(k, plus)
         if len(lines) + len(gaps) <= MAX_LINES:
             break
+    if shown_out is not None:
+        shown_out[:] = picked
     return lines + gaps
 
 
@@ -290,10 +369,12 @@ def _return_lines(p: Packet, who: str):
     return lines + _gap_lines(p)
 
 
-def _events_lines(p: Packet, who: str):
+def _events_lines(p: Packet, who: str, shown_out=None):
     lines = [f"{who}: recent exchange filings and what is due."]
     lines += [f"{f.label}: {f.value}." for f in p.facts]
     items = [f for f in p.factors][: MAX_LINES - 1 - len(p.facts) - len(p.gaps)]
+    if shown_out is not None:
+        shown_out[:] = items
     lines += [_factor_line(f) for f in items]
     if not p.factors:
         lines.append("No recent filings or meetings were found.")
@@ -301,9 +382,22 @@ def _events_lines(p: Packet, who: str):
 
 
 # ------------------------------------------------------------------ footer (code only)
-def build_footer(p: Packet) -> str:
+def footer_links(p: Packet, limit: int = 3, factors=None):
+    out = []
+    for f in (p.factors if factors is None else factors):
+        if f.url:
+            label = _clip(f.title, 60) + (f" ({f.source.split(': ', 1)[-1]})" if f.kind == "news" else "")
+            out.append((label, f.url))
+    return out[:limit]
+
+
+def build_footer(p: Packet, html_links: bool = False, factors=None) -> str:
+    """Sources, links and the as-of line, all from the packet. html_links=True writes Telegram HTML anchors so long
+    links stay hidden behind a label; plain text omits links longer than MAX_LINK_CHARS.
+    `factors` is the list the message actually displayed; sources and links describe only those."""
+    shown = list(p.factors if factors is None else factors)
     seen, sources = set(), []
-    for item in list(p.facts) + list(p.context) + list(p.factors):
+    for item in list(p.facts) + list(p.context) + shown:
         src = "Google News headlines" if item.source.startswith("News:") else item.source
         if src not in seen:
             seen.add(src)
@@ -311,42 +405,39 @@ def build_footer(p: Packet) -> str:
     lines = []
     if sources:
         lines.append("Sources: " + "; ".join(sources))
-    links = [f for f in p.factors if f.url][:3]
-    lines += [f"Link: {_clip(f.title, 60)} {f.url}" for f in links]
+    for label, url in footer_links(p, 3, shown):
+        if html_links:
+            lines.append(f'Link: <a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>')
+        elif len(url) <= MAX_LINK_CHARS:
+            lines.append(f"Link: {label} {url}")
+        else:
+            lines.append(f"Link: {label} (long link not shown in plain text)")
+    prices = any(f.source.startswith(PRICE_SOURCE) for f in list(p.facts) + list(p.context))
+    price_note = "Prices are NSE official end-of-day closes, not live quotes."
     try:
         stamp = datetime.fromisoformat(p.as_of).astimezone(IST)
-        lines.append(f"As of {stamp.day} {MONTHS[stamp.month - 1]} {stamp.year}, {stamp:%H:%M} IST. "
-                     "Prices are NSE official end-of-day closes, not live quotes.")
+        lines.append(f"As of {stamp.day} {MONTHS[stamp.month - 1]} {stamp.year}, {stamp:%H:%M} IST." + (f" {price_note}" if prices else ""))
     except (ValueError, TypeError):
-        lines.append("Prices are NSE official end-of-day closes, not live quotes.")
+        if prices:
+            lines.append(price_note)
     lines.append("Information only, not investment advice.")
     return "\n".join(lines)
 
 
-# ------------------------------------------------------------------ writer prompt
-WRITER_SYSTEM = """You turn a verified data packet into a short message for a phone. English only.
-Hard rules:
-1. Use ONLY facts in the packet. Never add numbers, dates, companies, causes, sources or opinions.
-2. Copy every number exactly as written in the packet (same digits). Do not round, convert or recompute.
-3. Write 4 to 8 short lines of plain text: no markdown, no numbering, no emojis, no all-caps words, no clock times.
-4. Say the company name and the official close, then the change, then market context if present.
-5. Factors are only POSSIBLE contributing factors, never causes. Introduce them with 'Possible contributing factors
-   (not confirmed causes):' and name each by type and timing. Show at most 4. Do not use words like because, due to,
-   caused by, driven by, led to, thanks to.
-6. Never give advice or predictions (no should, buy, sell, will rise, bullish, target).
-7. You MUST include each phrase listed in must_include, exactly, in your message.
-8. Do not write sources, links or timestamps; they are added separately."""
+# ------------------------------------------------------------------ summary prompt (the only model-written part)
+SUMMARY_SYSTEM = """You write the opening summary of a short phone message about one stock's price move. English only.
+Rules:
+1. Use ONLY the facts in the packet. Never add numbers, dates, companies, causes, sources or opinions.
+2. Copy every number exactly as written in the packet. Do not round, convert or recompute.
+3. Write 2 or 3 short sentences of plain text: no markdown, no lists, no emojis, no all-caps words, no clock times.
+4. State the company and the official close together with its date, then the change from the previous close,
+   then the market context if the packet has it.
+5. Do not mention filings, announcements, news, headlines or possible factors: they are added separately.
+6. Never explain why the price moved. Never give advice or predictions."""
 
 
-def compact_packet(p: Packet, max_factors: int = 5) -> dict:
-    return {"company": p.name, "symbol": p.symbol, "kind": p.kind,
-            "facts": [{"label": f.label, "value": f.value} for f in p.facts],
-            "context": [{"label": f.label, "value": f.value} for f in p.context],
-            "factors": [{"type": f.kind, "when": human_date(f.when), "timing": f.timing, "title": _clip(f.title, 100),
-                         "source": f.source} for f in select_factors(p.factors, max_factors)],
-            "caveats": [g.text for g in p.gaps],
-            "must_include": required_phrases(p)}
-
-
-def writer_input(p: Packet) -> str:
-    return "Packet:\n" + json.dumps(compact_packet(p), ensure_ascii=False) + "\nWrite the message now."
+def summary_input(p: Packet) -> str:
+    facts = [{"label": f.label, "value": f.value, **({"date": human_date(f.date)} if f.date else {})} for f in p.facts]
+    ctx = [{"label": f.label, "value": f.value} for f in p.context]
+    payload = {"company": p.name, "symbol": p.symbol, "facts": facts, "market_context": ctx}
+    return "Packet:\n" + json.dumps(payload, ensure_ascii=False) + "\nWrite the summary now."

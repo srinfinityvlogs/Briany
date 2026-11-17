@@ -296,6 +296,12 @@ class GeminiClient:
 
 
 # ------------------------------------------------------------------ fallback chain
+def _all_failed(attempts):
+    err = LlmError("all_failed", ", ".join(f"{n}={k}" for n, k in attempts) or "no providers configured")
+    err.attempts = tuple(attempts)
+    return err
+
+
 class Chain:
     """Try providers in order. Any failure, including a route the validator rejects, moves to the next."""
 
@@ -315,7 +321,7 @@ class Chain:
                 attempts.append((p.name, e.kind))
             except ValueError:
                 attempts.append((p.name, "invalid_route"))
-        raise LlmError("all_failed", ", ".join(f"{n}={k}" for n, k in attempts) or "no providers configured")
+        raise _all_failed(attempts)
 
     def write(self, system, user, max_tokens=500, validate=None):
         attempts = []
@@ -330,4 +336,4 @@ class Chain:
                 attempts.append((p.name, e.kind))
             except ValueError:
                 attempts.append((p.name, "invalid_text"))
-        raise LlmError("all_failed", ", ".join(f"{n}={k}" for n, k in attempts) or "no providers configured")
+        raise _all_failed(attempts)

@@ -8,7 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from briany.answer import WRITER_SYSTEM, build_footer, fallback_text, validate_text, writer_input
+from briany.answer import (SUMMARY_SYSTEM, build_footer, compose_move, fallback_text, premise_note,
+                           summary_input, validate_summary, validate_text)
 from briany.evidence import IST, Packet
 from briany.llm import LlmError
 from briany.router import Context, Route, Routed, route_question
@@ -45,6 +46,7 @@ class Answer:
     problems: tuple                 # validator problems from rejected model text (for logs)
     context: Context
     routed: Routed | None = None
+    write_attempts: tuple = ()      # ((provider, outcome), ...) for the model-written summary
 
 
 class Bot:
@@ -60,22 +62,30 @@ class Bot:
             return self.asm.period_return(a["query"], label=a["period"])
         return self.asm.events(a["query"])
 
-    def _compose(self, packet: Packet):
-        problems = []
+    def _compose(self, packet: Packet, question: str = ""):
+        notes, shown = premise_note(question, packet), []
         if packet.status != "ok" or packet.kind not in WRITER_KINDS:
-            return fallback_text(packet), "code", problems         # built by code by design; no model involved
+            return fallback_text(packet, notes, shown), "code", [], (), shown   # code by design; no model involved
+        problems = []
+
         def validate(text):
-            found = validate_text(text, packet)
+            found = validate_summary(text, packet)
             if found:
                 problems.extend(found)
                 raise ValueError("; ".join(found))
+        attempts = ()
         try:
-            text, provider, _attempts = self.chain.write(WRITER_SYSTEM, writer_input(packet), max_tokens=450,
-                                                          validate=validate)
-            return text.strip(), f"llm:{provider}", problems
-        except LlmError:
-            pass                                              # every provider failed or was rejected
-        return fallback_text(packet), "fallback", problems
+            summary, provider, attempts = self.chain.write(SUMMARY_SYSTEM, summary_input(packet), max_tokens=900,
+                                                            validate=validate)
+            body = compose_move(packet, summary, notes, shown)
+            final = validate_text(body, packet)                    # a last check on the assembled message
+            if not final:
+                return body, f"llm:{provider}", problems, tuple(attempts), shown
+            problems.extend("assembled message: " + x for x in final)
+        except LlmError as e:
+            attempts = getattr(e, "attempts", ())
+        shown = []
+        return fallback_text(packet, notes, shown), "fallback", problems, tuple(attempts), shown
 
     def ask(self, question: str, context: Context | None = None) -> Answer:
         context = context or Context()
@@ -89,10 +99,10 @@ class Bot:
                 text = UNSUPPORTED.get(route.args.get("reason"), UNSUPPORTED["other"])
                 return Answer(text, "fixed", route, None, "fixed", (), context, routed)
             packet = self._packet(route)
-            text, writer, problems = self._compose(packet)
-            footer = "" if packet.status == "clarify" else build_footer(packet)
+            text, writer, problems, w_attempts, shown = self._compose(packet, question)
+            footer = "" if packet.status == "clarify" else build_footer(packet, factors=shown)
             new_ctx = Context(packet.symbol, packet.name) if packet.symbol and packet.status != "clarify" else context
             return Answer(text + ("\n\n" + footer if footer else ""), packet.kind, route, packet, writer,
-                          tuple(problems), new_ctx, routed)
+                          tuple(problems), new_ctx, routed, w_attempts)
         except Exception as e:  # noqa: BLE001 - the bot must always answer; log the type only (no secrets)
             return Answer(ERROR_TEXT, "error", None, None, "error", (type(e).__name__,), context)
