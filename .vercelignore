@@ -1,6 +1,5 @@
 # Not needed at runtime: keeps the function bundle small.
 tests/
-spike/
 .github/
 conftest.py
 llm_suite.py

@@ -45,9 +45,9 @@ def test_vercel_json_pins_mumbai_and_the_entry_point_exists():
     assert re.search(r"^app = FastAPI\(", (ROOT / "app.py").read_text(), re.M)
 
 
-def test_vercelignore_keeps_tests_and_the_old_spike_out_of_the_bundle():
+def test_vercelignore_keeps_tests_out_but_ships_the_rollback_spike():
     lines = {l.strip() for l in (ROOT / ".vercelignore").read_text().splitlines()}
-    assert {"tests/", "spike/", ".github/"} <= lines
+    assert {"tests/", ".github/"} <= lines and "spike/" not in lines   # spike/ must ship: it is the rollback root
     assert "briany/" not in lines and "requirements.txt" not in lines and "app.py" not in lines
 
 
