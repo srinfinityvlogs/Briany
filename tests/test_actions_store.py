@@ -79,6 +79,8 @@ def test_dividends_in_window(store):
     store.set_actions(ACTIONS, META)
     assert dividends_in(store, "AAA", "2026-01-01", "2026-11-06") == [("2026-06-05", 6.0)]
     assert dividends_in(store, "AAA", "2026-06-05", "2026-11-06") == []    # start is exclusive
+    assert dividends_in(store, "AAA", "2026-01-01", "2026-06-04") == []    # an ex-date after the end is not in the period
+    assert dividends_in(store, "AAA", "2026-01-01", "2026-06-05") == [("2026-06-05", 6.0)]   # end is inclusive
     assert dividends_in(store, "BBB", "2025-01-01", "2026-12-31") == []    # splits are not dividends
 
 

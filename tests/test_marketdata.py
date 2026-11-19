@@ -110,6 +110,7 @@ def test_insufficient_history_and_symbol_gaps():
     assert r.status == "insufficient_history" and "2026-10-05" in r.note and r.pct is None
     y = period_return(s, "Y", "2026-11-06", "2026-10-06")     # Y not listed in start file
     assert y.status == "no_data" and "2026-10-06" in y.note
+    assert "listed after that date" in y.note and "not in the" not in y.note   # a recent listing is explained, not blamed on a file
     assert period_return(s, "X", "2026-11-06", "2026-11-06").status == "no_data"
     assert period_return(MemoryStore(), "X", "2026-11-06", "2026-10-06").status == "no_data"
 

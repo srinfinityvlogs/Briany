@@ -189,8 +189,10 @@ def period_return(store, symbol: str, end: str, start_target: str, actions=(), j
     s, e = store.get_row(start_day, symbol), store.get_row(end_day, symbol)
     if s is None or e is None:
         missing = start_day if s is None else end_day
-        return ReturnResult("no_data", symbol, start_date=start_day, end_date=end_day,
-                            note=f"{symbol} not in the {missing} file")
+        note = f"{symbol} not in the {missing} file"
+        if s is None and e is not None:                           # has a close now but none at the start: a recent listing
+            note = f"{symbol} has no price data for {start_day}; it may have been listed after that date"
+        return ReturnResult("no_data", symbol, start_date=start_day, end_date=end_day, note=note)
     hits = tuple(a for a in actions if start_day < a.ex_date <= end_day)
     if hits:
         return ReturnResult("blocked_by_corporate_action", symbol, start_date=start_day,

@@ -206,3 +206,28 @@ def summarize(results) -> str:
         lines.append(f"{r['id']}  [{p['kind']}/{p['status']}] {p['symbol']} | {facts or '-'}"
                      + (f" | context: {ctx}" if ctx else "") + f" | factors: {len(p['factors'])} | gaps: {gaps}")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ keeping the golden packets current
+def rebaseline(snap: dict) -> list:
+    """Re-run every scenario offline and store the packets the CURRENT code gives; returns the ids that changed.
+    Run it only after reading the change: it makes the golden test pass by accepting the new output."""
+    asm, _now = replay_assembler(snap)
+    changed = []
+    for r in snap["results"]:
+        packet = jsonable(run_call(asm, r["call"]))
+        if packet != r["packet"]:
+            changed.append(r["id"])
+            r["packet"] = packet
+    return changed
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2:
+        sys.exit("usage: python -m briany.snapshot tests/fixtures/phase1/phase1_scenarios.json.gz")
+    data = load_snapshot(sys.argv[1])
+    ids = rebaseline(data)
+    if ids:
+        save_snapshot(data, sys.argv[1])
+    print(f"{len(ids)} packet(s) changed and accepted:" + "".join(f"\n  {i}" for i in ids) if ids else "no packet changed")
