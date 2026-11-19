@@ -65,3 +65,18 @@ def test_retention_setting_default_and_floor():
     assert Settings.from_env({**FULL, "PRICE_RETENTION_DAYS": "400"}).price_retention_days == 400
     with pytest.raises(ConfigError):
         Settings.from_env({**FULL, "PRICE_RETENTION_DAYS": "200"})
+
+
+def test_bot_limits_have_defaults_and_can_be_tuned():
+    s = Settings.from_env(FULL)
+    assert (s.rate_limit_per_minute, s.rate_limit_per_day, s.context_ttl_seconds) == (3, 40, 1800)
+    t = Settings.from_env(dict(FULL, RATE_LIMIT_PER_MINUTE="2", RATE_LIMIT_PER_DAY="25", CONTEXT_TTL_SECONDS="600"))
+    assert (t.rate_limit_per_minute, t.rate_limit_per_day, t.context_ttl_seconds) == (2, 25, 600)
+
+
+@pytest.mark.parametrize("name,value", [("RATE_LIMIT_PER_MINUTE", "0"), ("RATE_LIMIT_PER_DAY", "-5"),
+                                         ("CONTEXT_TTL_SECONDS", "1.5"), ("RATE_LIMIT_PER_DAY", "many")])
+def test_bad_limits_are_rejected_by_name(name, value):
+    with pytest.raises(ConfigError) as e:
+        Settings.from_env(dict(FULL, **{name: value}))
+    assert name in str(e.value)

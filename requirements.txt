@@ -1,4 +1,4 @@
+fastapi
 requests
-pandas
-yfinance
-feedparser
+redis
+tzdata

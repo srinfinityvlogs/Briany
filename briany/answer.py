@@ -412,7 +412,8 @@ def build_footer(p: Packet, html_links: bool = False, factors=None) -> str:
         sources.append("NSE corporate actions")                 # stated in the caveat even when not listed as a factor
     lines = []
     if sources:
-        lines.append("Sources: " + "; ".join(sources))
+        src_line = "Sources: " + "; ".join(sources)
+        lines.append(html.escape(src_line, quote=False) if html_links else src_line)
     for label, url in footer_links(p, 3, shown):
         if html_links:
             lines.append(f'Link: <a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>')

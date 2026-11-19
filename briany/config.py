@@ -49,6 +49,13 @@ def _retention(env: dict) -> int:
     return days
 
 
+def _positive_int(env: dict, name: str, default: int) -> int:
+    value = _float(env, name, default)
+    if value < 1 or value != int(value):
+        raise ConfigError(f"{name} must be a whole number of at least 1, got {value:g}")
+    return int(value)
+
+
 def _id_set(env: dict, name: str) -> frozenset[int]:
     raw = (env.get(name) or "").strip()
     out = set()
@@ -75,6 +82,9 @@ class Settings:
     nse_min_interval_seconds: float = 1.0       # throttle between NSE calls
     redis_max_memory_mb: float = 0.0            # Redis plan cap; 0 = unknown (Upstash does not report it)
     price_retention_days: int = 380             # calendar days of price history to keep (min 370)
+    rate_limit_per_minute: int = 3              # questions per user per minute (Groq: ~8,000 tokens a minute)
+    rate_limit_per_day: int = 40                # questions per user per day (IST)
+    context_ttl_seconds: int = 1800             # how long a follow-up ('and last month?') remembers the company
     market: str = "IN"
     timezone: str = "Asia/Kolkata"
     log_level: str = "INFO"
@@ -94,6 +104,9 @@ class Settings:
             nse_min_interval_seconds=_float(env, "NSE_MIN_INTERVAL_SECONDS", 1.0),
             redis_max_memory_mb=_float(env, "REDIS_MAX_MEMORY_MB", 0.0),
             price_retention_days=_retention(env),
+            rate_limit_per_minute=_positive_int(env, "RATE_LIMIT_PER_MINUTE", 3),
+            rate_limit_per_day=_positive_int(env, "RATE_LIMIT_PER_DAY", 40),
+            context_ttl_seconds=_positive_int(env, "CONTEXT_TTL_SECONDS", 1800),
             market=_first(env, ("MARKET",)) or "IN",
             timezone=_first(env, ("TIMEZONE",)) or "Asia/Kolkata",
             log_level=(_first(env, ("LOG_LEVEL",)) or "INFO").upper(),

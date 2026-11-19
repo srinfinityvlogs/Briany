@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from html import escape as _escape
 
 from briany.answer import (SUMMARY_SYSTEM, build_footer, compose_move, fallback_text, premise_note,
                            summary_input, validate_summary, validate_text)
@@ -47,6 +48,14 @@ class Answer:
     context: Context
     routed: Routed | None = None
     write_attempts: tuple = ()      # ((provider, outcome), ...) for the model-written summary
+    body: str | None = None         # message without the footer (None = the whole text is the body)
+    footer_html: str = ""           # footer with Telegram HTML links
+
+    @property
+    def telegram_html(self) -> str:
+        """Body escaped for Telegram HTML, then the HTML footer (its links and text are built escaped)."""
+        body = _escape(self.text if self.body is None else self.body, quote=False)
+        return body + ("\n\n" + self.footer_html if self.footer_html else "")
 
 
 class Bot:
@@ -101,8 +110,9 @@ class Bot:
             packet = self._packet(route)
             text, writer, problems, w_attempts, shown = self._compose(packet, question)
             footer = "" if packet.status == "clarify" else build_footer(packet, factors=shown)
+            footer_html = "" if packet.status == "clarify" else build_footer(packet, factors=shown, html_links=True)
             new_ctx = Context(packet.symbol, packet.name) if packet.symbol and packet.status != "clarify" else context
             return Answer(text + ("\n\n" + footer if footer else ""), packet.kind, route, packet, writer,
-                          tuple(problems), new_ctx, routed, w_attempts)
+                          tuple(problems), new_ctx, routed, w_attempts, body=text, footer_html=footer_html)
         except Exception as e:  # noqa: BLE001 - the bot must always answer; log the type only (no secrets)
             return Answer(ERROR_TEXT, "error", None, None, "error", (type(e).__name__,), context)

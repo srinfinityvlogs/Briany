@@ -1,0 +1,12 @@
+# Not needed at runtime: keeps the function bundle small.
+tests/
+spike/
+.github/
+conftest.py
+llm_suite.py
+phase1_checks.py
+phase1.yaml
+Dockerfile
+requirements-*.txt
+README.md
+LICENSE

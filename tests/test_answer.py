@@ -363,3 +363,11 @@ def test_the_corporate_actions_source_is_listed_when_the_caveat_relies_on_it():
     assert "NSE corporate actions" in footer.splitlines()[0]
     assert footer.splitlines()[0].count("NSE corporate actions") == 1
     assert "NSE corporate actions" not in A.build_footer(PK["none"])
+
+
+def test_html_footer_escapes_the_sources_line_but_plain_text_does_not():
+    f = Factor("news", "2026-11-09T08:00:00+05:30", "x", "Headline", "News: Reuters", url="https://a.example/x")
+    g = Factor("announcement", "2026-11-09T09:00:00", "x", "Filing", "NSE <filings> & more")
+    p = Packet("move", "ok", "X", "X", "2026-11-10T09:00:00+05:30", factors=(f, g))
+    assert "Sources: Google News headlines; NSE <filings> & more" in A.build_footer(p)
+    assert "Sources: Google News headlines; NSE &lt;filings&gt; &amp; more" in A.build_footer(p, html_links=True)

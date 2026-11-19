@@ -206,3 +206,13 @@ def test_the_footer_lists_only_what_the_message_showed():
         label = line[len("Link: "):].rsplit(" https://", 1)[0]
         assert label in body                                              # every linked item is in the message
     assert "(plus " in body and body.count("- NSE filing") < 6
+
+
+def test_the_telegram_version_escapes_the_body_and_uses_html_links():
+    ans = bot([FP("groq", WHY, [SUMMARY])]).ask("why is acme up today")
+    body, footer = ans.telegram_html.split("\n\n", 1)[0], ans.telegram_html.rsplit("Sources: ", 1)[1]
+    assert '<a href="https://news/1">' in footer and "<a href" not in ans.text          # links only in the HTML version
+    assert "<a href" not in body and ans.body is not None and ans.text.startswith(ans.body)
+    assert ans.footer_html and ans.telegram_html.endswith(ans.footer_html)
+    fixed = bot([FP("groq", ToolCall("smalltalk", {}))]).ask("hello")
+    assert fixed.telegram_html == B.HELP.replace("&", "&amp;") and fixed.body is None
