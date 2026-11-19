@@ -198,6 +198,7 @@ def test_three_questions_a_minute_then_a_friendly_refusal_then_it_resets():
     outcomes = [h.handle(update(f"q{i}", update_id=i)) for i in range(1, 6)]
     assert outcomes == ["answered"] * 3 + ["rate_limited_minute"] * 2
     assert wire.sent[-1]["text"] == RATE_MINUTE and len(spy.questions) == 3
+    assert [p["text"] for p in wire.sent].count(RATE_MINUTE) == 1                  # one notice for the whole burst
     clock.t += 61
     assert h.handle(update("q6", update_id=6)) == "answered"
     assert r.ttl(next(iter(r.keys("tg:rl:m:*")))) <= 120
@@ -354,3 +355,26 @@ def test_the_log_line_names_the_region_vercel_runs_the_function_in(caplog, monke
     monkeypatch.delenv("VERCEL_REGION")
     h.handle(update("/help", update_id=6))
     assert "region=-" in caplog.text
+
+
+def test_a_burst_of_refused_messages_gets_one_notice_per_window_not_one_each(caplog):
+    caplog.set_level(logging.INFO, logger="briany.telegram")
+    spy = SpyBot()
+    h, wire, r, clock = make(spy)
+    for i in range(1, 4):
+        h.handle(update("q", update_id=i))
+    outcomes = [h.handle(update("more", update_id=10 + i)) for i in range(6)]
+    assert outcomes == ["rate_limited_minute"] * 6
+    assert [p["text"] for p in wire.sent].count(RATE_MINUTE) == 1 and len(spy.questions) == 3
+    assert caplog.text.count("notice=sent") == 1 and caplog.text.count("notice=skipped") == 5
+    clock.t += 61                                                                      # a new minute: answers resume ...
+    for i in range(3):
+        assert h.handle(update("q", update_id=100 + i)) == "answered"
+    assert h.handle(update("again", update_id=200)) == "rate_limited_minute"          # ... and the next burst gets its own notice
+    assert [p["text"] for p in wire.sent].count(RATE_MINUTE) == 2
+
+
+def test_if_redis_fails_the_notice_is_still_sent():
+    h, wire, *_ = make(SpyBot())
+    h.state.r = type("Broken", (), {"set": lambda *a, **k: (_ for _ in ()).throw(ConnectionError("down"))})()
+    assert h.state.first_notice(OWNER, "minute") is True

@@ -158,6 +158,20 @@ class State:
             log.warning("redis rate limit failed: %s", type(e).__name__)
         return None
 
+    def first_notice(self, uid: int, kind: str) -> bool:
+        """True only for the first refusal in a window ('minute' or IST 'day'), so a burst of refused messages
+        gets one notice instead of one reply each. If Redis fails the notice is sent (safe side)."""
+        now = self._clock()
+        if kind == "minute":
+            window, ttl = str(int(now // 60)), 120
+        else:
+            window, ttl = datetime.fromtimestamp(now, IST).date().isoformat(), 172800
+        try:
+            return bool(self.r.set(f"tg:rl:note:{kind}:{uid}:{window}", "1", nx=True, ex=ttl))
+        except Exception as e:  # noqa: BLE001
+            log.warning("redis notice marker failed: %s", type(e).__name__)
+            return True
+
     def whoami_limited(self, uid: int) -> bool:
         try:
             return self._over("w", uid, str(int(self._clock() // 60)), WHOAMI_PER_MINUTE, 120)
@@ -238,7 +252,10 @@ class Handler:
             return "too_long"
         limited = self.state.question_limit(uid)
         if limited:
-            self._say(chat_id, RATE_MINUTE if limited == "minute" else RATE_DAY)
+            notify = self.state.first_notice(uid, limited)
+            if notify:
+                self._say(chat_id, RATE_MINUTE if limited == "minute" else RATE_DAY)
+            detail["notice"] = "sent" if notify else "skipped"
             return f"rate_limited_{limited}"
 
         self.api.send_typing(chat_id)
