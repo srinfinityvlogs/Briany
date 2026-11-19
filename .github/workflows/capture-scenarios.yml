@@ -1,0 +1,31 @@
+name: capture-scenarios
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Trading days for the 'why did it move' scenarios, comma-separated (YYYY-MM-DD)"
+        required: true
+        default: "2026-11-03,2026-11-02,2026-10-30"
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Record the scenarios from real data
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          IN_DAYS: ${{ github.event.inputs.days }}
+        run: python -m briany.capture_cli --days "$IN_DAYS" --out snapshot
+      - name: Save the recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-snapshot
+          path: snapshot/
