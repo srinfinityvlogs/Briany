@@ -343,3 +343,23 @@ def test_footer_describes_only_the_factors_the_message_displayed():
     ev_text = A.fallback_text(PK["events"], (), events_shown)
     assert events_shown and all(f.title in ev_text for f in events_shown)
     assert A.fallback_text(PK["refused"], (), (empty := [])) and empty == []
+
+
+def test_no_direction_words_about_the_price_when_a_corporate_action_hides_the_change():
+    p = PK["bonus"]                                              # close 50.50, previous 101.00, bonus ex-date
+    ok = "Acme Industries Limited (ACME) closed at ₹50.50 on 9 Nov 2026; the previous close was ₹101.00 (unadjusted)."
+    assert A.validate_summary(ok, p) == []
+    for bad in ("Acme Industries Limited (ACME) closed at ₹50.50 on 9 Nov 2026, down from ₹101.00 the previous close.",
+                "Acme Industries Limited (ACME) closed at ₹50.50 on 9 Nov 2026, lower than the ₹101.00 before."):
+        assert any("no direction words" in x for x in A.validate_summary(bad, p)), bad
+    up, down = next(f for f in p.context if f.label == "Stocks up / down").value.split(" / ")
+    market = ok + f" Across the market, {up} stocks were up and {down} down."      # direction words about OTHER numbers are fine
+    assert A.validate_summary(market, p) == []
+    assert "7. If the packet shows no" in A.SUMMARY_SYSTEM
+
+
+def test_the_corporate_actions_source_is_listed_when_the_caveat_relies_on_it():
+    footer = A.build_footer(PK["bonus"])
+    assert "NSE corporate actions" in footer.splitlines()[0]
+    assert footer.splitlines()[0].count("NSE corporate actions") == 1
+    assert "NSE corporate actions" not in A.build_footer(PK["none"])

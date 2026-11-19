@@ -234,6 +234,12 @@ def validate_summary(text: str, p: Packet) -> list:
         problems.append("missing key figure: the date of the close")
     if chg and chg.raw is not None and abs(Decimal(str(chg.raw))) not in seen and _dec(chg.value) not in seen:
         problems.append("missing key figure: the change from the previous close")
+    if chg is None:                      # a corporate action is involved: the raw price change is not a real move
+        targets = {abs(Decimal(str(f.raw))) for f in p.facts[:2] if f.raw is not None}
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
+            if {_dec(t) for t in NUMBER.findall(sentence)} & targets and (UP_WORDS.search(sentence) or DOWN_WORDS.search(sentence)):
+                problems.append("no direction words about the price when the change is not shown (corporate action)")
+                break
     return problems
 
 
@@ -402,6 +408,8 @@ def build_footer(p: Packet, html_links: bool = False, factors=None) -> str:
         if src not in seen:
             seen.add(src)
             sources.append(src)
+    if any(g.code == "corporate_action_on_date" for g in p.gaps) and "NSE corporate actions" not in seen:
+        sources.append("NSE corporate actions")                 # stated in the caveat even when not listed as a factor
     lines = []
     if sources:
         lines.append("Sources: " + "; ".join(sources))
@@ -433,7 +441,8 @@ Rules:
 4. State the company and the official close together with its date, then the change from the previous close,
    then the market context if the packet has it.
 5. Do not mention filings, announcements, news, headlines or possible factors: they are added separately.
-6. Never explain why the price moved. Never give advice or predictions."""
+6. Never explain why the price moved. Never give advice or predictions.
+7. If the packet shows no 'Change from previous close', do not describe the price as up, down, higher or lower."""
 
 
 def summary_input(p: Packet) -> str:
