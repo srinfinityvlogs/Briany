@@ -343,3 +343,14 @@ def test_split_message_edge_cases():
     spaced = split_message(("word " * 2000).strip(), limit=4000)
     assert all(len(p) <= 4000 for p in spaced) and " ".join(spaced).split() == ["word"] * 2000
     assert split_message("one\n\ntwo") == ["one\n\ntwo"]
+
+
+def test_the_log_line_names_the_region_vercel_runs_the_function_in(caplog, monkeypatch):
+    caplog.set_level(logging.INFO, logger="briany.telegram")
+    monkeypatch.setenv("VERCEL_REGION", "bom1")
+    h, wire, *_ = make()
+    h.handle(update("/help", update_id=5))
+    assert "outcome=help" in caplog.text and "region=bom1" in caplog.text
+    monkeypatch.delenv("VERCEL_REGION")
+    h.handle(update("/help", update_id=6))
+    assert "region=-" in caplog.text

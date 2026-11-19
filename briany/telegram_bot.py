@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from html import escape
@@ -176,7 +177,7 @@ class Handler:
         """Process one update. Never raises; returns a short outcome label (also logged)."""
         t0 = self._clock()
         update_id = update.get("update_id") if isinstance(update, dict) else None
-        detail = {}
+        detail = {"region": os.environ.get("VERCEL_REGION") or "-"}     # where this function ran (Vercel sets it)
         try:
             outcome = self._handle(update, detail)
         except TelegramError as e:
