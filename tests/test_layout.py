@@ -18,7 +18,7 @@ def names(path):
     for line in (ROOT / path).read_text().splitlines():
         line = line.split("#")[0].strip()
         if line:
-            out.add(re.split(r"[<>=!~\[ ;]", line, 1)[0].lower())
+            out.add(re.split(r"[<>=!~\[ ;]", line, maxsplit=1)[0].lower())
     return out
 
 
@@ -35,10 +35,14 @@ def test_every_workflow_install_file_exists():
 
 
 def test_retired_files_stay_retired():
-    """The hosting spike, the Phase 1 feasibility scripts, the Northflank Dockerfile and the one-off publication probe."""
-    gone = ["spike", "Dockerfile", "phase1.yaml", "phase1_checks.py", "llm_suite.py", "requirements-phase1.txt",
+    """The hosting spike, the Phase 1 feasibility scripts, the Northflank Dockerfile and the one-off publication probe.
+    An empty spike/ folder (or one holding only __pycache__) can linger on a machine after `git rm`; git does not track it."""
+    gone = ["Dockerfile", "phase1.yaml", "phase1_checks.py", "llm_suite.py", "requirements-phase1.txt",
             ".github/workflows/phase1.yml", "briany/probe_publication.py", "tests/test_probe.py"]
     assert [g for g in gone if (ROOT / g).exists()] == []
+    spike = ROOT / "spike"
+    left = [p for p in spike.rglob("*") if p.is_file() and "__pycache__" not in p.parts] if spike.exists() else []
+    assert left == []
 
 
 def test_dev_requirements_cover_the_web_tests():
