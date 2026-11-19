@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 HEADER = "TradDt,TckrSymb,SctySrs,ClsPric,PrvsClsgPric,TtlTradgVol,TtlTrfVal\n"
 
 

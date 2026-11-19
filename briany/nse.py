@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """NSE client: throttled, cached, loud on blocks. Stdlib only.
 
 Only HTTP 5xx and network errors are retried. A 403 or an HTML page instead of JSON

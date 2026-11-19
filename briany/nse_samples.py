@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Capture the real shape of NSE's JSON endpoints (public data only, no secrets).
 
   python -m briany.nse_samples

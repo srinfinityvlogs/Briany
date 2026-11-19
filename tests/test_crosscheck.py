@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from briany.crosscheck import crosscheck
 from briany.marketdata import PriceRow
 from briany.nse_parsers import CorpAction

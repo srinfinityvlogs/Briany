@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Read-only report on the stored price history. Public data only; safe to share."""
 from datetime import date, timedelta
 

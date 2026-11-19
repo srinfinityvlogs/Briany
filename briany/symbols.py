@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Symbol resolver: turns what a person types into an NSE symbol, or asks.
 
 Universe comes from NSE's daily end-of-day file (bhavcopy), which includes ETFs

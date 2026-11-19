@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Telegram front end: one webhook update in, zero or more messages out. No web framework in here.
 
 Flow for a message: dedupe -> /whoami (private chats only) -> allowlist (strangers get nothing) ->

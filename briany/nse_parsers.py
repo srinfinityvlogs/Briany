@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Turn NSE JSON records into plain objects. Pure functions, no network.
 
 Built against real responses captured in Nov 2026 (see tests/fixtures). Anything not

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Evidence assembler: turns a question into a verified packet. Code builds every fact, number,
 date and source line; a language model later only phrases the packet and never adds to it.
 

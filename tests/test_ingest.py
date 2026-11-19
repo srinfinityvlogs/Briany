@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 import pytest
 
 from briany.ingest import (backfill, ingest_day, memory_report, prune_history, redis_url_problem,

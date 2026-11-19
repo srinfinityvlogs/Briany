@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Guards against workflow mistakes that GitHub only reveals as 'Workflow dispatch failed'.
 
 YAML 1.1 reads bare on/off/yes/no/true/false as booleans, so an input named `on` silently

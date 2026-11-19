@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Company news headlines from Google News RSS. Stdlib only.
 
 Keeps headline, source, time and link. No article text, and no claim that a headline

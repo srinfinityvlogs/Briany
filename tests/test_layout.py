@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Guards for the Vercel layout: what gets installed and shipped, and that the runtime needs nothing else."""
 import json
 import re
@@ -17,7 +18,7 @@ def names(path):
     for line in (ROOT / path).read_text().splitlines():
         line = line.split("#")[0].strip()
         if line:
-            out.add(re.split(r"[<>=!~\[ ;]", line, maxsplit=1)[0].lower())
+            out.add(re.split(r"[<>=!~\[ ;]", line, 1)[0].lower())
     return out
 
 
@@ -27,12 +28,17 @@ def test_vercel_installs_only_runtime_packages():
     assert not (found & PHASE1_ONLY)
 
 
-def test_phase1_requirements_moved_and_every_workflow_install_file_exists():
-    assert names("requirements-phase1.txt") == {"requests", "pandas", "yfinance", "feedparser"}
+def test_every_workflow_install_file_exists():
     for wf in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
         for target in re.findall(r"pip install -r (\S+)", wf.read_text()):
             assert (ROOT / target).is_file(), f"{wf.name} installs {target}, which does not exist"
-    assert "requirements-phase1.txt" in (ROOT / ".github/workflows/phase1.yml").read_text()
+
+
+def test_retired_files_stay_retired():
+    """The hosting spike, the Phase 1 feasibility scripts, the Northflank Dockerfile and the one-off publication probe."""
+    gone = ["spike", "Dockerfile", "phase1.yaml", "phase1_checks.py", "llm_suite.py", "requirements-phase1.txt",
+            ".github/workflows/phase1.yml", "briany/probe_publication.py", "tests/test_probe.py"]
+    assert [g for g in gone if (ROOT / g).exists()] == []
 
 
 def test_dev_requirements_cover_the_web_tests():
@@ -45,9 +51,9 @@ def test_vercel_json_pins_mumbai_and_the_entry_point_exists():
     assert re.search(r"^app = FastAPI\(", (ROOT / "app.py").read_text(), re.M)
 
 
-def test_vercelignore_keeps_tests_out_but_ships_the_rollback_spike():
+def test_vercelignore_keeps_tests_and_ci_files_out_of_the_bundle():
     lines = {l.strip() for l in (ROOT / ".vercelignore").read_text().splitlines()}
-    assert {"tests/", ".github/"} <= lines and "spike/" not in lines   # spike/ must ship: it is the rollback root
+    assert {"tests/", ".github/"} <= lines
     assert "briany/" not in lines and "requirements.txt" not in lines and "app.py" not in lines
 
 

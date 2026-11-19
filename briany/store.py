@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Daily price storage. MemoryStore for tests/local, RedisStore for production.
 
 Redis layout: one compressed string per day, pxz:<date> (zlib + base64 of lines

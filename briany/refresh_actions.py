@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Keep a compact copy of NSE corporate actions in Redis so answers never call NSE for them.
 
   python -m briany.ingest --refresh-actions

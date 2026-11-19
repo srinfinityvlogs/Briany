@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The whole path from a question to a message: route -> assemble -> write (or fall back) -> validate -> footer.
 
 The model only routes and, for price-move packets, rephrases. Returns, filings lists, refusals,

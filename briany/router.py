@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Question router: free text -> one tool call. The model only ROUTES; it never answers.
 
 Tools map to evidence-assembler packets. Every route is validated in code before use; if no LLM

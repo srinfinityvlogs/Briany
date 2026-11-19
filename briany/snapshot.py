@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record real inputs once, replay them offline: the basis of the Step 9 regression tests.
 
 capture_snapshot() runs a list of scenarios through the real Assembler while recording every NSE and news call, then

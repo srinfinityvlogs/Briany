@@ -2,10 +2,6 @@
 tests/
 .github/
 conftest.py
-llm_suite.py
-phase1_checks.py
-phase1.yaml
-Dockerfile
 requirements-*.txt
 README.md
 LICENSE

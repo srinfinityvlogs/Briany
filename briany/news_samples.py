@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Capture real Google News RSS responses (public) to verify the parser. Used once.
 
   python -m briany.news_samples

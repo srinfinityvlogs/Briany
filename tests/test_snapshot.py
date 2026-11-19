@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The record-and-replay tool behind the Step 9 regression tests, checked on synthetic data."""
 import json
 

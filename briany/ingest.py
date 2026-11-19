@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Fill the Redis price history from NSE end-of-day files.
 
   python -m briany.ingest --recent 7

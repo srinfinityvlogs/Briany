@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Vercel entry point: the Telegram webhook. Everything else lives in the briany package."""
 from __future__ import annotations
 

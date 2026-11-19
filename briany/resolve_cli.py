@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Try the resolver on REAL data (stdlib only).
 
   python -m briany.resolve_cli --stats reliance relience goldbees tata nifty

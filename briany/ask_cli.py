@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Ask the bot a question end to end on real data (public data only; no secret is printed).
 
   python -m briany.ask_cli --question "why is reliance up today"

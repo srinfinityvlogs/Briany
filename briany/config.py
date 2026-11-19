@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """All configuration comes from environment variables. No secrets in code."""
 from __future__ import annotations
 

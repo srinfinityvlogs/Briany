@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Build one evidence packet from real stored data and print it as JSON (public data only).
 
   python -m briany.assemble_cli --mode why --query "reliance"

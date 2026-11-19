@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Synthetic feeds that follow the RSS 2.0 layout. Real Google output is verified separately (news_samples)."""
 import json
 import urllib.error

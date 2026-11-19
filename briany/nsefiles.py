@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Download NSE's daily end-of-day file. Stdlib only."""
 import io
 import urllib.error

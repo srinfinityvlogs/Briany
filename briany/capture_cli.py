@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Record the Phase 1 scenarios from real data (public data only; no secret is printed).
 
   python -m briany.capture_cli --days 2026-11-03,2026-11-02,2026-10-30 --out snapshot

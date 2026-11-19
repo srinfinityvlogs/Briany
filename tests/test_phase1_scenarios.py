@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Regression tests from REAL data: the Phase 1 stocks on the Phase 1 days, recorded once from NSE with
 `capture-scenarios` and replayed offline (no network, fixed clock). Three layers:
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Prices from NSE end-of-day files: parsing, daily moves, period returns.
 
 Pure logic, no network. Every figure carries the file date it came from.

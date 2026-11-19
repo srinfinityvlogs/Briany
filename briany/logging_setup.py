@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Logging that never prints secret values, even by accident."""
 import logging
 

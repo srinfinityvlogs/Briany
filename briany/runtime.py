@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Builds the Telegram handler from environment variables. Used by the web app (app.py); nothing here prints a secret."""
 from __future__ import annotations
 

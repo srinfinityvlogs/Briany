@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Rules added after the first real Google News capture (Nov 2026). Headlines here are INVENTED to
 imitate the real patterns; real feed content is deliberately not copied into the repo."""
 from datetime import datetime, timezone

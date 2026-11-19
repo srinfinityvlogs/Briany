@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 from briany.dbcheck import KNOWN_CLOSES, chain_breaks, run_check
 from briany.marketdata import PriceRow
 from briany.store import MemoryStore

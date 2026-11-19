@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Try the question router on real Groq and Gemini (needs GROQ_API_KEY / GEMINI_API_KEY) and on the rules.
 
   python -m briany.route_cli --suite

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 import pytest
 
 from briany.symbols import Instrument, Resolver, format_choices, parse_bhavcopy

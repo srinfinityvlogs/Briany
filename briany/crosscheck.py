@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Do large one-day price moves line up with NSE's corporate-action list?
 
   python -m briany.crosscheck       (needs REDIS_URL; fetches one year of actions from NSE)

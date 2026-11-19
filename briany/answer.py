@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """From a verified packet to a message: deterministic text, model-written text, validator, footer.
 
 The model may only REPHRASE a packet that code built. validate_text() rejects any model text that contains a

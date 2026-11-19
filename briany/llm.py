@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LLM providers (Groq, Gemini) behind one interface, with a fallback chain.
 
 Phase 1 verified: Groq `chat/completions` with OpenAI-style tools (openai/gpt-oss-120b chose the right tool
