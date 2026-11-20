@@ -1,0 +1,24 @@
+name: pin-dependencies
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - name: Resolve exact versions for Vercel's Python 3.12 on Linux
+        run: |
+          uv pip compile requirements.in --python-version 3.12 --python-platform linux --no-header --no-annotate -o requirements.pinned.txt
+          cat requirements.pinned.txt
+      - name: Save the pinned list
+        uses: actions/upload-artifact@v4
+        with:
+          name: requirements-pinned
+          path: requirements.pinned.txt

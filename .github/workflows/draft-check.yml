@@ -1,0 +1,38 @@
+name: draft-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      max:
+        description: "How many recorded packets to try (Groq allows about 3 to 4 a minute, so 9 takes about 5 minutes)"
+        required: true
+        default: "9"
+      live_question:
+        description: "Also try this question on real data (empty = skip)"
+        required: false
+        default: "why is reliance up today"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Ask each model to write the summary and show what the validator says
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IN_MAX: ${{ github.event.inputs.max }}
+          IN_LIVE: ${{ github.event.inputs.live_question }}
+        run: python -m briany.draft_check --max "$IN_MAX" --live "$IN_LIVE"
+      - name: Save the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: draft-report
+          path: drafts/

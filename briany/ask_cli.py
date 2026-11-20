@@ -43,7 +43,8 @@ def build_bot():
         providers.append(GroqClient(settings.groq_api_key, model=settings.groq_model))
     if settings.gemini_api_key:
         providers.append(GeminiClient(settings.gemini_api_key, model=settings.gemini_model))
-    asm = Assembler(store, NseClient(min_interval=settings.nse_min_interval_seconds), NewsClient(), resolver)
+    _names_day, names = store.get_names()
+    asm = Assembler(store, NseClient(min_interval=settings.nse_min_interval_seconds), NewsClient(), resolver, names=names)
     return Bot(asm, Chain(providers), resolver)
 
 

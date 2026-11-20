@@ -109,6 +109,9 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | `refresh-names` | Scheduled daily: store NSE's full company names (cosmetic; a failure never affects prices or answers) |
 | `capture-scenarios` | Record real scenarios for the regression tests (see below) |
 | `name-samples` | Capture NSE's name lists and measure how many instruments each one names |
+| `draft-check` | Ask each model to write the summary for real packets and show what the validator rejects and why |
+| `index-samples` | Capture NSE's index sources, to decide whether index-level questions can be answered |
+| `pin-dependencies` | Resolve exact versions of the runtime packages for Vercel (see Updating dependencies) |
 | `nse-samples`, `news-samples` | Capture real feed samples to verify the parsers |
 
 On Vercel, Runtime Logs show one line per update: update id, outcome, region, route, writer, problems and timing.
@@ -132,6 +135,12 @@ python -m briany.snapshot tests/fixtures/phase1/phase1_scenarios.json.gz
 ```
 
 To record new scenarios, run `capture-scenarios` in Actions and replace the fixture with the downloaded file.
+
+## Updating dependencies
+
+`requirements.in` lists the runtime packages a person edits. Run `pin-dependencies` in Actions, download
+`requirements.pinned.txt`, and commit its contents as `requirements.txt`, which is what Vercel installs. Pinned versions mean
+a new release of a library can never change a deployment on its own.
 
 ## Known limits
 

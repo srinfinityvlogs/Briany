@@ -23,9 +23,15 @@ def names(path):
 
 
 def test_vercel_installs_only_runtime_packages():
+    """requirements.txt is what Vercel installs: the runtime packages (pinned or not, plus their own dependencies)."""
     found = names("requirements.txt")
-    assert found == RUNTIME_PACKAGES, f"root requirements.txt is what Vercel installs; got {sorted(found)}"
+    assert RUNTIME_PACKAGES <= found, f"missing {sorted(RUNTIME_PACKAGES - found)}"
     assert not (found & PHASE1_ONLY)
+
+
+def test_the_direct_runtime_dependencies_are_listed_in_requirements_in():
+    """requirements.in is the list a person edits; the pin-dependencies workflow turns it into exact versions."""
+    assert names("requirements.in") == RUNTIME_PACKAGES
 
 
 def test_every_workflow_install_file_exists():
