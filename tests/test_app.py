@@ -145,3 +145,10 @@ def test_gemini_joins_the_chain_only_when_its_key_is_set(monkeypatch):
     with_key = build_handler(dict(ENV, GEMINI_API_KEY="gem_key_123456"), client=fake_redis_with_instruments())
     assert [p.name for p in without.bot.chain.providers] == ["groq"]
     assert [p.name for p in with_key.bot.chain.providers] == ["groq", "gemini"]
+
+
+def test_build_handler_loads_the_stored_company_names_into_the_assembler():
+    r = fake_redis_with_instruments()
+    assert build_handler(ENV, client=r).bot.asm.names == {}                          # refresh-names has not run yet
+    RedisStore(r).set_names("2026-11-20", {"ACME": "Acme Industries Limited"})
+    assert build_handler(ENV, client=r).bot.asm.names == {"ACME": "Acme Industries Limited"}

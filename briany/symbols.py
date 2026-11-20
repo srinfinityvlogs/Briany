@@ -189,14 +189,15 @@ def parse_bhavcopy(text: str):
     return out, stats
 
 
-def format_choices(res: Resolution) -> str:
-    """Code-built wording for a low-confidence match. No model involved."""
+def format_choices(res: Resolution, name_of=None) -> str:
+    """Code-built wording for a low-confidence match. No model involved. `name_of` maps an Instrument to the name shown."""
+    name_of = name_of or (lambda inst: inst.name)
     if res.status == "none":
         return f"I couldn't find a stock or ETF matching \"{res.query}\". Try the NSE symbol."
     if res.status == "ambiguous":
-        opts = "; ".join(f"{m.instrument.name} ({m.instrument.symbol})" for m in res.matches)
+        opts = "; ".join(f"{name_of(m.instrument)} ({m.instrument.symbol})" for m in res.matches)
         if len(res.matches) == 1:
             return f"Did you mean {opts}? Reply yes, or send the NSE symbol."
         return f"Did you mean: {opts}? Reply with the symbol."
     b = res.matches[0].instrument
-    return f"Showing {b.name} ({b.symbol})."
+    return f"Showing {name_of(b)} ({b.symbol})."

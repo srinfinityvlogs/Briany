@@ -32,12 +32,13 @@ def build_handler(env=None, client=None, api_post=None):
     if not instruments:
         raise ConfigError("no instrument list stored in Redis; run ingest-prices with refresh_instruments = yes")
     resolver = Resolver(instruments)
+    _names_day, names = store.get_names()                           # full company names; empty until refresh-names has run
     providers = [GroqClient(settings.groq_api_key, model=settings.groq_model)]
     if settings.gemini_api_key:
         providers.append(GeminiClient(settings.gemini_api_key, model=settings.gemini_model))
     cache = RedisCache(client)
     assembler = Assembler(store, NseClient(cache=cache, min_interval=settings.nse_min_interval_seconds),
-                          NewsClient(cache=cache), resolver)
+                          NewsClient(cache=cache), resolver, names=names)
     bot = Bot(assembler, Chain(providers), resolver)
     state = State(client, context_ttl=settings.context_ttl_seconds, per_minute=settings.rate_limit_per_minute,
                   per_day=settings.rate_limit_per_day)

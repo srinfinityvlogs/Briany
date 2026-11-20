@@ -60,6 +60,7 @@ GitHub Actions (ingest-prices, evenings) ──> NSE end-of-day files ──┘
 | `briany/nse.py`, `nse_parsers.py`, `refresh_actions.py` | NSE filings, board meetings, calendar, corporate actions |
 | `briany/news.py` | Google News RSS with relevance and age filters |
 | `briany/symbols.py` | Turns "reliance" or "tcs" into an NSE symbol, or asks which one |
+| `briany/names.py`, `refresh_names.py` | NSE's full company names, stored daily so a stock has one name in every answer |
 | `briany/snapshot.py`, `capture_cli.py` | Record real data once and replay it offline for regression tests |
 | `*_cli.py`, `dbcheck.py`, `crosscheck.py`, `*_samples.py` | Small tools run from GitHub Actions |
 | `tests/` | The test suite (see below) |
@@ -80,7 +81,8 @@ Everything below uses free tiers at the time of writing. Check each provider's c
    `GROQ_API_KEY`, and `GEMINI_API_KEY` if you use it. These are only for the data load and the tools.
 7. **Load the data:** in Actions run `ingest-prices` with `refresh_instruments = yes`, then again with `start` set to a
    date about a year back and `end` to yesterday (run it in chunks if a run hits the 45-minute limit), then once with
-   no inputs, which also refreshes the corporate-actions copy. Answers refuse prices if that copy is more than 3 days
+   no inputs, which also refreshes the corporate-actions copy. Then run `refresh-names` once (it keeps itself current
+   after that, on weekdays around 12:00 IST). Answers refuse prices if that copy is more than 3 days
    old. After that the schedule keeps it current (about 20:00 IST on weekdays, with a safety run at 03:00 IST).
    Check with `ingest-prices` and `check = yes`.
 8. **Register the webhook** (run once; the token and secret stay in your own shell):
@@ -104,7 +106,9 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | `assemble-evidence` | Print the verified packet (before any model) for one question |
 | `route-test` | Check how the question router behaves on a built-in set of questions |
 | `crosscheck-actions` | Check that large one-day moves match NSE's corporate-action list |
+| `refresh-names` | Scheduled daily: store NSE's full company names (cosmetic; a failure never affects prices or answers) |
 | `capture-scenarios` | Record real scenarios for the regression tests (see below) |
+| `name-samples` | Capture NSE's name lists and measure how many instruments each one names |
 | `nse-samples`, `news-samples` | Capture real feed samples to verify the parsers |
 
 On Vercel, Runtime Logs show one line per update: update id, outcome, region, route, writer, problems and timing.
@@ -133,8 +137,9 @@ To record new scenarios, run `capture-scenarios` in Actions and replace the fixt
 
 - One stock or ETF per question. No comparisons, index levels, intraday prices, bulk-deal or market-wide questions,
   result figures, or US markets yet.
-- Returns and events show NSE's short price-file name (for example `TATA CONSULTANCY SERV LT`); "why" answers use the full
-  name from filings.
+- Stocks are called by NSE's full company name everywhere. ETFs and SME stocks keep the short, truncated name from the
+  price file (for example `NIP IND ETF GOLD BEES`): on 20 Nov 2026 NSE's ETF list had no proper-name column and its SME
+  list held a single row. Run `name-samples` again to see whether that has changed.
 - News covers about the last week, so older days say news was not checked. Headlines that say only "Reliance" or "RIL"
   are not matched to Reliance Industries (precision over recall).
 - FII/DII data appears only when the day asked about is the latest stored day.

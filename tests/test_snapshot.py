@@ -152,3 +152,16 @@ def test_summary_has_a_readable_line_per_scenario():
     assert len(lines) == 6
     first = next(l for l in lines if l.startswith("why:acme:2026-11-09"))
     assert "Official close, 9 Nov 2026: ₹110.00" in first and "[move/ok] ACME" in first and "gaps:" in first
+
+
+def test_the_names_a_scenario_showed_are_recorded_and_replayed():
+    store = build_store(HISTORY)
+    store.set_names("2026-11-10", {"ACME": "Acme Full Name Limited", "TATASTEEL": "Tata Steel Limited", "OTHER": "Not shown"})
+    calls = build_calls(["acme"], ["2026-11-09"], periods=("1w",)) + [
+        {"id": "why:tata", "fn": "why_moved", "args": {"query": "tata", "on": None}}]       # ambiguous: choices show names
+    snap = capture_snapshot(store, INSTRUMENTS, FULL_NSE(), FULL_NEWS(), NOW, calls)
+    assert snap["names"] == {"ACME": "Acme Full Name Limited", "TATASTEEL": "Tata Steel Limited"}   # only what was shown
+    by_id = {r["id"]: r["packet"] for r in snap["results"]}
+    assert by_id["why:acme:2026-11-09"]["name"] == "Acme Full Name Limited"
+    assert "Tata Steel Limited (TATASTEEL)" in by_id["why:tata"]["choices"]
+    assert replayed(snap) == by_id

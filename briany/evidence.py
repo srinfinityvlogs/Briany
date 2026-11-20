@@ -151,11 +151,16 @@ def _group_meetings(meetings):
 
 
 class Assembler:
-    def __init__(self, store, nse, news, resolver, now=None):
+    def __init__(self, store, nse, news, resolver, now=None, names=None):
         self.store, self.nse, self.news, self.resolver = store, nse, news, resolver
+        self.names = dict(names or {})                      # {symbol: full company name} from NSE's equity list
         self._now = now or (lambda: datetime.now(IST))
 
     # ---------------------------------------------------------------- shared helpers
+    def _name(self, inst) -> str:
+        """The name shown for an instrument: NSE's full company name when stored, else the price-file name."""
+        return self.names.get(inst.symbol) or inst.name
+
     def _stamp(self) -> str:
         return self._now().astimezone(IST).isoformat(timespec="seconds")
 
@@ -167,16 +172,16 @@ class Assembler:
         if res.status in ("exact", "confident"):
             inst = res.best
             if inst.kind == "index":
-                return None, Packet("clarify", "refused", inst.symbol, inst.name, self._stamp(), gaps=(Gap(
+                return None, Packet("clarify", "refused", inst.symbol, self._name(inst), self._stamp(), gaps=(Gap(
                     "index_not_supported", "Index levels are not stored; only stocks and ETFs are supported.",
                     "missing"),))
             return inst, None
         return None, Packet("clarify", "clarify", as_of=self._stamp(),
-                            gaps=(Gap("symbol_unresolved", format_choices(res), "missing"),),
-                            choices=tuple(f"{m.instrument.name} ({m.instrument.symbol})" for m in res.matches))
+                            gaps=(Gap("symbol_unresolved", format_choices(res, self._name), "missing"),),
+                            choices=tuple(f"{self._name(m.instrument)} ({m.instrument.symbol})" for m in res.matches))
 
     def _refuse(self, kind, inst, *gaps, facts=()):
-        return Packet(kind, "refused", inst.symbol, inst.name, self._stamp(), facts=tuple(facts), gaps=tuple(gaps))
+        return Packet(kind, "refused", inst.symbol, self._name(inst), self._stamp(), facts=tuple(facts), gaps=tuple(gaps))
 
     def _stale_gap(self, day):
         if (Date.fromisoformat(self._today()) - Date.fromisoformat(day)).days > STALE_AFTER_DAYS:
@@ -246,12 +251,12 @@ class Assembler:
         def timing(t):
             return "after the previous close, before the open" if t < opening else "during market hours"
 
-        factors, name = [], inst.name
+        factors, name = [], self._name(inst)
         try:                                                     # filings; the wide window also gives the full name
             anns = _unique_announcements(
                 self.nse.announcements(sym, (Date.fromisoformat(day) - timedelta(days=45)).isoformat(), day))
             if anns:
-                name = anns[0].company or name
+                name = self.names.get(sym) or anns[0].company or name
             for a in anns:
                 t = _aware(a.published)
                 if lo < t <= hi:
@@ -325,7 +330,7 @@ class Assembler:
                                   amount, "NSE corporate actions", d))
             gaps = [Gap("price_return_only", "This is a price return; it excludes dividends.", "info")]
             gaps += self._stale_gap(r.end_date) if end == self.store.latest_day() else []
-            return Packet("return", "ok", sym, inst.name, self._stamp(), tuple(facts), (), (), tuple(gaps), True)
+            return Packet("return", "ok", sym, self._name(inst), self._stamp(), tuple(facts), (), (), tuple(gaps), True)
         if r.status == "blocked_by_corporate_action":
             facts = [Fact("Corporate action in this period", a.purpose, None, "NSE corporate actions", a.ex_date)
                      for a in r.actions]
@@ -347,11 +352,11 @@ class Assembler:
         sym, today = inst.symbol, self._today()
         factors, facts, gaps = [], [], []
         start = (Date.fromisoformat(today) - timedelta(days=days)).isoformat()
-        name = inst.name
+        name = self._name(inst)
         try:
             anns = _unique_announcements(self.nse.announcements(sym, start, today))
             if anns:
-                name = anns[0].company or name
+                name = self.names.get(sym) or anns[0].company or name
             for a in anns[:8]:
                 factors.append(Factor("announcement", a.published, f"on {human_date(a.published)}", a.category,
                                       "NSE announcement", _clip(a.text), a.url))

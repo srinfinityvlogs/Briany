@@ -231,3 +231,27 @@ def test_the_code_built_answer_is_valid_clean_and_short_for_every_real_packet(id
     for part in (text, footer):
         assert not re.search(r"\bNone\b|\bnan\b|\{|\}|\bTODO\b", part), part
     assert all(url.startswith("https://") for url in re.findall(r'href="([^"]+)"', footer))
+
+
+# ---------------------------------------------------------------- one proper name per stock (Step 11)
+FULL_NAMES = {"RELIANCE": "Reliance Industries Limited", "TCS": "Tata Consultancy Services Limited",
+              "INFY": "Infosys Limited", "TEMPSENS": "Tempsens Instruments (India) Limited",
+              "KRN": "KRN Heat Exchanger and Refrigeration Limited"}
+
+
+def test_the_recording_holds_nses_full_names_for_the_stocks_but_not_the_etf():
+    assert SNAP["names"] == FULL_NAMES                       # NSE's equity list has no entry for GOLDBEES
+
+
+@pytest.mark.parametrize("q,sym", sorted(SYMBOL.items()))
+def test_a_stock_has_one_name_in_every_kind_of_answer(q, sym):
+    shown = {p["name"] for i, p in STORED.items() if p["symbol"] == sym}
+    assert len(shown) == 1, shown
+    expected = FULL_NAMES.get(sym, "NIP IND ETF GOLD BEES")  # an ETF keeps NSE's short price-file name
+    assert shown == {expected}
+
+
+def test_returns_no_longer_show_the_truncated_all_caps_file_name():
+    text = fallback_text(PACKETS["return:tcs:6m"])
+    assert text.startswith("Tata Consultancy Services Limited (TCS)") and "SERV LT" not in text
+    assert fallback_text(PACKETS["return:krn:1y"]).startswith("KRN Heat Exchanger and Refrigeration Limited (KRN)")

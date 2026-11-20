@@ -1,0 +1,25 @@
+name: refresh-names
+
+on:
+  schedule:
+    - cron: "30 6 * * 1-5"      # 12:00 IST Mon-Fri; NSE updates its lists at 10:30 IST (GitHub may start the run late)
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-names
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Store NSE's full company names
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        run: python -m briany.refresh_names

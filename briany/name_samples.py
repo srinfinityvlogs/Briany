@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 from briany.nse_samples import ARCHIVE, HEADERS
+from briany.names import read_names
 from briany.nsefiles import fetch_bhavcopy
 from briany.symbols import parse_bhavcopy
 
@@ -27,28 +28,6 @@ CANDIDATES = [
     ("sme_list", ARCHIVE + "SME_EQUITY_L.csv"),
 ]
 KEY_SYMBOLS = ("RELIANCE", "TCS", "INFY", "TEMPSENS", "KRN", "GOLDBEES")
-
-
-def _norm(column: str) -> str:
-    return "".join(ch for ch in column.upper() if ch.isalnum())
-
-
-def read_names(text: str):
-    """(columns, symbol_column, name_column, {symbol: name}) from an NSE list. Columns are guessed from their headers;
-    the guess is printed, so a wrong one is visible. Either column is None if no header looks right."""
-    reader = csv.DictReader(io.StringIO(text.lstrip("\ufeff")))
-    columns = [c.strip() for c in (reader.fieldnames or [])]
-    reader.fieldnames = columns
-    symbol_col = next((c for c in columns if _norm(c) == "SYMBOL"), None) or next((c for c in columns if "SYMBOL" in _norm(c)), None)
-    name_col = (next((c for c in columns if _norm(c) in ("NAMEOFCOMPANY", "COMPANYNAME", "SECURITYNAME")), None)
-                or next((c for c in columns if "NAME" in _norm(c) and c != symbol_col), None))
-    names = {}
-    if symbol_col and name_col:
-        for row in reader:
-            sym, name = (row.get(symbol_col) or "").strip(), " ".join((row.get(name_col) or "").split())
-            if sym and name:
-                names[sym] = name
-    return columns, symbol_col, name_col, names
 
 
 def coverage(instruments, sources: dict) -> dict:

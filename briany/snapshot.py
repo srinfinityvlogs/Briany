@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import gzip
 import json
+import re
 from datetime import datetime
 
 from briany.evidence import IST, Assembler
@@ -125,9 +126,13 @@ def run_call(asm, call):
 def capture_snapshot(store, instruments, nse, news, now, calls) -> dict:
     resolver = Resolver(instruments)
     rec_nse, rec_news = Recorder(nse), Recorder(news)
-    asm = Assembler(store, rec_nse, rec_news, resolver, now=lambda: now)
+    _names_day, all_names = store.get_names()
+    asm = Assembler(store, rec_nse, rec_news, resolver, now=lambda: now, names=all_names)
     results = [{"id": c["id"], "call": c, "packet": jsonable(run_call(asm, c))} for c in calls]
     symbols = sorted({r["packet"]["symbol"] for r in results if r["packet"]["symbol"]})
+    shown = set(symbols) | {m.group(1) for r in results for c in r["packet"]["choices"]
+                            if (m := re.search(r"\(([^()]+)\)$", c))}
+    names = {sym: all_names[sym] for sym in sorted(shown) if sym in all_names}
     scenario_days = sorted({c["args"]["on"] for c in calls if c["args"].get("on")})
     days = store.all_days()
     prices = {s: {} for s in symbols}
@@ -147,6 +152,7 @@ def capture_snapshot(store, instruments, nse, news, now, calls) -> dict:
         "days": days,
         "symbols": symbols,
         "instruments": pack_instruments(instruments),
+        "names": names,
         "prices": prices,
         "full_days": full_days,
         "actions": {s: encode(store.get_actions(s)) for s in symbols},
@@ -192,7 +198,7 @@ def replay_assembler(snap: dict):
     store = replay_store(snap)
     _day, instruments = store.get_instruments()
     asm = Assembler(store, Replay(snap["nse_calls"]), Replay(snap["news_calls"]), Resolver(instruments),
-                    now=lambda: now)
+                    now=lambda: now, names=snap.get("names"))
     return asm, now
 
 

@@ -20,6 +20,7 @@ from briany.symbols import Instrument
 DAYS_KEY = "pxz:days"
 JUMPS_KEY = "pxz:jumps"
 INSTRUMENTS_KEY = "pxz:instruments"
+NAMES_KEY = "pxz:names"
 ACTIONS_KEY = "pxz:actions"
 ACTIONS_META_KEY = "pxz:actions:meta"
 DAY_PREFIX = "pxz:"
@@ -53,6 +54,17 @@ def pack_instruments(instruments) -> str:
     """Compact, compressed list of tradable instruments (symbol, name, isin, series, turnover)."""
     lines = [f"{i.symbol}|{i.name.replace('|', '/')}|{i.isin}|{i.series}|{int(i.turnover)}" for i in instruments]
     return base64.b64encode(zlib.compress("\n".join(lines).encode("utf-8"), 9)).decode("ascii")
+
+
+def pack_names(names: dict) -> str:
+    """Compact, compressed {symbol: company name} map."""
+    lines = [f"{sym}|{name.replace('|', '/')}" for sym, name in sorted(names.items())]
+    return base64.b64encode(zlib.compress("\n".join(lines).encode("utf-8"), 9)).decode("ascii")
+
+
+def unpack_names(blob: str) -> dict:
+    text = zlib.decompress(base64.b64decode(blob)).decode("utf-8")
+    return dict(line.split("|", 1) for line in text.splitlines() if "|" in line)
 
 
 def unpack_instruments(blob: str) -> list:
@@ -92,6 +104,7 @@ class MemoryStore:
         self.actions: dict[str, list] = {}
         self.actions_meta = None
         self.instruments = (None, [])
+        self.names = (None, {})
 
     def set_instruments(self, day, instruments):
         # same packing as Redis, so both stores behave identically
@@ -100,6 +113,13 @@ class MemoryStore:
     def get_instruments(self):
         day, items = self.instruments
         return day, list(items)
+
+    def set_names(self, day, names):
+        self.names = (day, unpack_names(pack_names(names)))
+
+    def get_names(self):
+        day, names = self.names
+        return day, dict(names)
 
     def set_actions(self, actions, meta):
         self.actions = {sym: unpack_actions(v) for sym, v in pack_actions(actions).items()}
@@ -213,6 +233,16 @@ class RedisStore:
             return None, []
         d = json.loads(v)
         return d["day"], unpack_instruments(d["blob"])
+
+    def set_names(self, day, names):
+        self.r.set(NAMES_KEY, json.dumps({"day": day, "blob": pack_names(names)}))
+
+    def get_names(self):
+        v = self.r.get(NAMES_KEY)
+        if not v:
+            return None, {}
+        d = json.loads(v)
+        return d["day"], unpack_names(d["blob"])
 
     def set_actions(self, actions, meta):
         """Replace the stored copy atomically: build under a temp key, then RENAME over it."""
