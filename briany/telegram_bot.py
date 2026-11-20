@@ -265,6 +265,8 @@ class Handler:
         route = getattr(answer, "route", None)
         detail.update(tool=route.tool if route else "-", writer=answer.writer, kind=answer.kind,
                       problems=len(answer.problems))
+        if getattr(answer, "write_attempts", ()):
+            detail["write"] = ",".join(f"{p}:{o}" for p, o in answer.write_attempts)
         if answer.problems:
             detail["problem_notes"] = "|".join(str(p)[:80] for p in answer.problems[:3]).replace(" ", "_")
         self._send_answer(chat_id, answer)

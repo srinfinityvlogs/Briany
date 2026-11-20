@@ -23,10 +23,18 @@ def names(path):
 
 
 def test_vercel_installs_only_runtime_packages():
-    """requirements.txt is what Vercel installs: the runtime packages (pinned or not, plus their own dependencies)."""
+    """requirements.txt is what Vercel installs: the runtime packages and their own dependencies, nothing from Phase 1."""
     found = names("requirements.txt")
     assert RUNTIME_PACKAGES <= found, f"missing {sorted(RUNTIME_PACKAGES - found)}"
     assert not (found & PHASE1_ONLY)
+
+
+def test_every_line_of_requirements_txt_is_an_exact_pin():
+    """A new release of a library must never change a deployment by itself; see 'Updating dependencies' in the README."""
+    lines = [l.split("#")[0].strip() for l in (ROOT / "requirements.txt").read_text().splitlines()]
+    lines = [l for l in lines if l]
+    assert lines and all(re.fullmatch(r"[A-Za-z0-9_.\-]+==[0-9][A-Za-z0-9_.+!\-]*", l) for l in lines), \
+        [l for l in lines if "==" not in l]
 
 
 def test_the_direct_runtime_dependencies_are_listed_in_requirements_in():

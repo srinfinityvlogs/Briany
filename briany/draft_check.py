@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from briany.answer import SUMMARY_SYSTEM, summary_input, validate_summary
+from briany.bot import SUMMARY_MAX_TOKENS
 from briany.llm import LlmError
 
 FIXTURE = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "phase1" / "phase1_scenarios.json.gz"
@@ -63,19 +64,19 @@ def pick(items, n):
     return [items[int(i * step)] for i in range(n)]
 
 
-def evaluate(provider, packets, pause=15.0, sleep=time.sleep):
+def evaluate(provider, packets, pause=15.0, sleep=time.sleep, max_tokens=SUMMARY_MAX_TOKENS):
     """One row per packet: {'id', 'draft', 'problems', 'error'}. A rate limit waits a minute and tries once more."""
     rows = []
     for i, (id_, packet) in enumerate(packets):
-        row = {"id": id_, "draft": None, "problems": [], "error": None}
+        row = {"id": id_, "draft": None, "problems": [], "error": None, "detail": ""}
         for attempt in (1, 2):
             try:
-                row["draft"] = provider.write(SUMMARY_SYSTEM, summary_input(packet), 900)
+                row["draft"] = provider.write(SUMMARY_SYSTEM, summary_input(packet), max_tokens)
                 row["problems"] = validate_summary(row["draft"], packet)
                 row["error"] = None
                 break
             except LlmError as e:
-                row["error"] = e.kind
+                row["error"], row["detail"] = e.kind, str(e).removeprefix(e.kind).lstrip(": ")[:150]
                 if e.kind in ("rate_limit",) and attempt == 1:
                     sleep(60)
                     continue
@@ -104,7 +105,7 @@ def report(results: dict) -> str:
         if counts:
             lines.append("  why drafts were rejected: " + "; ".join(f"{k} x{v}" for k, v in counts.most_common()))
         if errors:
-            lines.append("  provider errors: " + ", ".join(f"{r['id']} ({r['error']})" for r in errors))
+            lines.append("  provider errors: " + "; ".join(f"{r['id']} ({r['error']}: {r['detail']})" if r["detail"] else f"{r['id']} ({r['error']})" for r in errors))
         for r in rejected:
             lines.append(f"\n  REJECTED {r['id']}\n    problems: " + " | ".join(r["problems"]) + f"\n    draft: {r['draft']!r}")
         for r in accepted[:2]:
@@ -132,13 +133,15 @@ def main(argv=None):
     ap.add_argument("--providers", default="", help="comma list, e.g. groq (default: every provider with a key)")
     ap.add_argument("--pause", type=float, default=15.0, help="seconds between calls (Groq allows about 8,000 tokens a minute)")
     ap.add_argument("--out", default="drafts")
+    ap.add_argument("--max-tokens", type=int, default=SUMMARY_MAX_TOKENS, help="output budget per draft (default: the bot's)")
+    ap.add_argument("--repeat", type=int, default=1, help="run the live questions this many times (models vary run to run)")
     a = ap.parse_args(argv)
     providers = providers_from_env({p.strip() for p in a.providers.split(",") if p.strip()})
     if not providers:
         sys.exit("no model key found: set GROQ_API_KEY and/or GEMINI_API_KEY")
-    packets = pick(fixture_packets(), a.max) + (live_packets([q for q in a.live if q.strip()]) if any(a.live) else [])
+    packets = pick(fixture_packets(), a.max) + (live_packets([q for q in a.live if q.strip()]) * max(1, a.repeat) if any(a.live) else [])
     print(f"{len(packets)} packets, providers: {', '.join(p.name for p in providers)}")
-    results = {p.name: evaluate(p, packets, a.pause) for p in providers}
+    results = {p.name: evaluate(p, packets, a.pause, max_tokens=a.max_tokens) for p in providers}
     text = report(results)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

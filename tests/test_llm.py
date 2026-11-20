@@ -366,3 +366,49 @@ def test_all_failed_errors_carry_the_attempts_for_logging():
     with pytest.raises(LlmError) as e2:
         Chain([Fake("groq", error=LlmError("empty"))]).write("s", "u")
     assert e2.value.attempts == (("groq", "empty"),)
+
+
+# ---------------------------------------------------------------- a draft cut off by the token limit is never used
+def test_groq_reports_a_cut_off_draft_instead_of_returning_it():
+    cut = {"choices": [{"message": {"content": "Reliance closed at 1,363.00 on 18 Nov 202"}, "finish_reason": "length"}]}
+    c, _, _ = groq([ok(cut)])
+    with pytest.raises(LlmError) as e:
+        c.write("s", "u", max_tokens=900)
+    assert e.value.kind == "truncated"
+    only_thinking = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
+    c, _, _ = groq([ok(only_thinking)])
+    with pytest.raises(LlmError) as e:
+        c.write("s", "u")
+    assert e.value.kind == "truncated"                          # not the vaguer 'empty'
+    done = {"choices": [{"message": {"content": "All good."}, "finish_reason": "stop"}]}
+    assert groq([ok(done)])[0].write("s", "u") == "All good."
+
+
+def test_gemini_reports_a_cut_off_draft_instead_of_returning_it():
+    cut = {"candidates": [{"content": {"parts": [{"text": "Tata Consultancy closed at 2,501.70, a change of -0"}]},
+                           "finishReason": "MAX_TOKENS"}]}
+    with pytest.raises(LlmError) as e:
+        gemini([ok(cut)])[0].write("s", "u")
+    assert e.value.kind == "truncated"
+    no_parts = {"candidates": [{"content": {"role": "model"}, "finishReason": "MAX_TOKENS"}]}
+    with pytest.raises(LlmError) as e:
+        gemini([ok(no_parts)])[0].write("s", "u")
+    assert e.value.kind == "truncated"
+    done = {"candidates": [{"content": {"parts": [{"text": "All good."}]}, "finishReason": "STOP"}]}
+    assert gemini([ok(done)])[0].write("s", "u") == "All good."
+
+
+def test_the_chain_moves_on_when_a_draft_is_cut_off():
+    class Cut:
+        name = "groq"
+
+        def write(self, system, user, max_tokens=500):
+            raise LlmError("truncated", "out of tokens")
+
+    class Fine:
+        name = "gemini"
+
+        def write(self, system, user, max_tokens=500):
+            return "A complete summary."
+    text, provider, attempts = Chain([Cut(), Fine()]).write("s", "u")
+    assert (text, provider, attempts) == ("A complete summary.", "gemini", [("groq", "truncated"), ("gemini", "ok")])

@@ -38,6 +38,9 @@ UNSUPPORTED = {
 ERROR_TEXT = "Something went wrong while preparing that answer. Please try again in a moment."
 
 
+SUMMARY_MAX_TOKENS = 2000        # output budget for the opening summary; reasoning models spend part of it thinking
+
+
 @dataclass(frozen=True)
 class Answer:
     text: str                       # final message, including the footer
@@ -85,7 +88,7 @@ class Bot:
                 raise ValueError("; ".join(found))
         attempts = ()
         try:
-            summary, provider, attempts = self.chain.write(SUMMARY_SYSTEM, summary_input(packet), max_tokens=900,
+            summary, provider, attempts = self.chain.write(SUMMARY_SYSTEM, summary_input(packet), max_tokens=SUMMARY_MAX_TOKENS,
                                                             validate=validate)
             body = compose_move(packet, summary, notes, shown)
             final = validate_text(body, packet)                    # a last check on the assembled message

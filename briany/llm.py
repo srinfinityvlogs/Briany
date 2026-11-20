@@ -23,7 +23,7 @@ GEMINI_PREFERRED = ("gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-f
 
 class LlmError(RuntimeError):
     """kind: network | rate_limit | daily_limit | server | auth | forbidden | bad_request | empty
-    | no_tool_call | invalid_route | all_failed"""
+    | no_tool_call | invalid_route | truncated | all_failed"""
 
     def __init__(self, kind: str, message: str = ""):
         super().__init__(f"{kind}: {message}" if message else kind)
@@ -188,7 +188,12 @@ class GroqClient:
     def write(self, system, user, max_tokens=500) -> str:
         body = {"model": self.model, "temperature": 0.2, "max_tokens": max_tokens,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        text = strip_think(self._message(self._request(body)).get("content") or "")
+        data = self._request(body)
+        message = self._message(data)
+        if (data["choices"][0].get("finish_reason") or "") == "length":
+            # Reasoning models spend part of max_tokens thinking; a cut-off draft must never be validated or sent.
+            raise LlmError("truncated", "the model ran out of output tokens before it finished")
+        text = strip_think(message.get("content") or "")
         if not text:
             raise LlmError("empty", "the model returned no text")
         return text
@@ -290,7 +295,14 @@ class GeminiClient:
         body = {"systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": user}]}],
                 "generationConfig": {"temperature": 0.2, "maxOutputTokens": max_tokens}}
-        text = "".join(p.get("text", "") for p in self._parts(self._request(body))).strip()
+        data = self._request(body)
+        try:
+            finish = data["candidates"][0].get("finishReason") or ""
+        except (KeyError, IndexError, TypeError, AttributeError):
+            finish = ""
+        if finish == "MAX_TOKENS":                          # thinking tokens count against maxOutputTokens
+            raise LlmError("truncated", "the model ran out of output tokens before it finished")
+        text = "".join(p.get("text", "") for p in self._parts(data)).strip()
         if not text:
             raise LlmError("empty", "the model returned no text")
         return text

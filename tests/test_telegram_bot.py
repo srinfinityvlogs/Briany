@@ -379,3 +379,12 @@ def test_if_redis_fails_the_notice_is_still_sent():
     h, wire, *_ = make(SpyBot())
     h.state.r = type("Broken", (), {"set": lambda *a, **k: (_ for _ in ()).throw(ConnectionError("down"))})()
     assert h.state.first_notice(OWNER, "minute") is True
+
+
+def test_the_log_line_shows_which_provider_wrote_and_which_ran_out_of_tokens(caplog):
+    from briany.llm import LlmError
+    caplog.set_level(logging.INFO, logger="briany.telegram")
+    h, wire, *_ = make(real_bot([FP("groq", WHY, write_error=LlmError("truncated", "x")), FP("gemini", WHY, [SUMMARY])]))
+    assert h.handle(update("why is acme up today", update_id=88)) == "answered"
+    line = next(r.getMessage() for r in caplog.records if "outcome=answered" in r.getMessage())
+    assert "writer=llm:gemini" in line and "write=groq:truncated,gemini:ok" in line and "problems=0" in line

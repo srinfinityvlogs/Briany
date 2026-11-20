@@ -217,3 +217,12 @@ def test_the_telegram_version_escapes_the_body_and_uses_html_links():
     assert ans.footer_html and ans.telegram_html.endswith(ans.footer_html)
     fixed = bot([FP("groq", ToolCall("smalltalk", {}))]).ask("hello")
     assert fixed.telegram_html == B.HELP.replace("&", "&amp;") and fixed.body is None
+
+
+def test_a_cut_off_draft_from_the_first_provider_falls_through_without_any_validation_problem():
+    from briany.bot import SUMMARY_MAX_TOKENS
+    cut = FP("groq", WHY, write_error=LlmError("truncated", "out of tokens"))
+    good = FP("gemini", WHY, [SUMMARY])
+    ans = bot([cut, good]).ask("why is acme up today")
+    assert ans.writer == "llm:gemini" and ans.problems == () and ans.write_attempts == (("groq", "truncated"), ("gemini", "ok"))
+    assert cut.write_calls[0][2] == SUMMARY_MAX_TOKENS == 2000

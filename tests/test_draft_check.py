@@ -2,6 +2,7 @@
 import pytest
 
 from briany.answer import validate_summary
+from briany.bot import SUMMARY_MAX_TOKENS
 from briany.draft_check import category, evaluate, fixture_packets, pick, report
 from briany.evidence import human_date
 from briany.llm import LlmError
@@ -50,7 +51,7 @@ def test_a_good_draft_is_accepted_and_a_bad_one_is_rejected_with_the_reason():
     assert all(r["problems"] == [] and r["error"] is None for r in rows_ok) and len(ok.calls) == 3
     assert all(any("202" in p for p in r["problems"]) for r in rows_bad)
     system, user, max_tokens = ok.calls[0]
-    assert "opening summary" in system and user.startswith("Packet:") and max_tokens == 900
+    assert "opening summary" in system and user.startswith("Packet:") and max_tokens == SUMMARY_MAX_TOKENS == 2000
     assert validate_summary(good_text(PACKETS[0][1]), PACKETS[0][1]) == []                  # the helper's text really is valid
 
 
@@ -101,3 +102,12 @@ def test_no_key_means_a_clear_exit(monkeypatch):
     monkeypatch.delenv("KV_REDIS_URL", raising=False)
     with pytest.raises(SystemExit, match="no model key"):
         draft_check.main(["--max", "1"])
+
+
+def test_the_token_budget_can_be_changed_and_a_truncated_draft_is_reported_with_its_reason():
+    w = Writer("groq", lambda n, user: LlmError("truncated", "the model ran out of output tokens before it finished"))
+    rows = evaluate(w, pick(PACKETS, 2), pause=0, sleep=lambda s: None, max_tokens=500)
+    assert w.calls[0][2] == 500 and [r["error"] for r in rows] == ["truncated", "truncated"]
+    assert rows[0]["detail"] == "the model ran out of output tokens before it finished"
+    text = report({"groq": rows})
+    assert "(truncated: the model ran out of output tokens before it finished)" in text
