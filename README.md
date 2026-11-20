@@ -110,7 +110,7 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | `capture-scenarios` | Record real scenarios for the regression tests (see below) |
 | `name-samples` | Capture NSE's name lists and measure how many instruments each one names |
 | `draft-check` | Ask each model to write the summary for real packets and show what the validator rejects and why |
-| `index-samples` | Capture NSE's index sources, to decide whether index-level questions can be answered |
+| `index-samples` | Capture NSE's index end-of-day file for one or more days (comma separated), to check older dates and holidays |
 | `pin-dependencies` | Resolve exact versions of the runtime packages for Vercel (see Updating dependencies) |
 | `nse-samples`, `news-samples` | Capture real feed samples to verify the parsers |
 

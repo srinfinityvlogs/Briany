@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-from briany.index_samples import KEY_INDICES, ddmmyyyy, describe_csv, describe_json, run
+import pytest
+
+from briany.index_samples import KEY_INDICES, ddmmyyyy, describe_csv, describe_json, main, run, run_days, split_days
 
 CSV = ("Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Points Change,Change(%)\r\n"
        "Nifty 50,18-11-2026,25000.1,25100.2,24900.3,25050.4,50.3,0.2\r\n"
@@ -46,3 +48,36 @@ def test_a_blocked_or_garbled_source_is_reported_not_fatal(tmp_path):
         return {"status": 403, "seconds": 0.1, "error": "HTTPError"}
     summary = run("2026-11-18", str(tmp_path), fetch=fetch, pause=0)
     assert "HTTP 403" in summary and "not readable as json" in summary
+
+
+def test_several_days_are_split_cleanly():
+    assert split_days("2026-11-03, 2026-10-30;2026-11-03,,") == ["2026-11-03", "2026-10-30"]
+    assert split_days("  ") == []
+
+
+def test_a_malformed_date_stops_before_any_fetch(monkeypatch):
+    for bad in ("2026-1-3", "03-11-2026", "abc", "2026-11-0x"):
+        with pytest.raises(SystemExit):
+            ddmmyyyy(bad)
+    called = []
+    monkeypatch.setattr("briany.index_samples.fetch_text", lambda *a, **k: called.append(a))
+    with pytest.raises(SystemExit):
+        main(["--day", "2026-11-03,2026-13"])
+    assert called == []
+
+
+def test_several_days_one_run_api_once_and_a_holiday_is_reported(tmp_path):
+    served = {"ind_close_all_03112026.csv": CSV, "allIndices": API}
+    urls = []
+
+    def fetch(url, timeout=30):
+        urls.append(url)
+        text = served.get(url.rsplit("/", 1)[1])
+        return ({"status": 200, "seconds": 0.1, "bytes": len(text), "text": text} if text
+                else {"status": 404, "seconds": 0.1, "error": "HTTPError"})
+    summary = run_days(["2026-11-03", "2026-11-10"], str(tmp_path), fetch=fetch, pause=0)
+    assert sum(u.endswith("allIndices") for u in urls) == 1
+    assert "2026-11-03: HTTP 200" in summary and "2026-11-10: HTTP 404" in summary
+    assert (tmp_path / "2026-11-03" / "index_close_csv.csv").exists()
+    assert not (tmp_path / "2026-11-10" / "index_close_csv.csv").exists()
+    assert (tmp_path / "summary.txt").read_text().strip() == summary

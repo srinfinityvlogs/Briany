@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       day:
-        description: "A published trading day (YYYY-MM-DD)"
+        description: "Trading day(s) YYYY-MM-DD, comma separated for several"
         required: true
-        default: "2026-11-18"
+        default: "2026-11-03,2026-10-30,2026-11-10"
 
 jobs:
   capture:

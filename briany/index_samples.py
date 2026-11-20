@@ -23,7 +23,12 @@ API_URL = "https://www.nseindia.com/api/allIndices"
 
 
 def ddmmyyyy(day: str) -> str:
-    y, m, d = day.split("-")
+    try:
+        y, m, d = day.split("-")
+        if not (len(y) == 4 and len(m) == 2 and len(d) == 2 and (y + m + d).isdigit()):
+            raise ValueError
+    except ValueError:
+        raise SystemExit(f"bad date {day!r}: use YYYY-MM-DD") from None
     return f"{d}{m}{y}"
 
 
@@ -56,12 +61,42 @@ def _matches(rows) -> dict:
     return found
 
 
-def run(day: str, out_dir: str = "samples/indices", fetch=fetch_text, pause: float = 1.5) -> str:
+def split_days(value: str) -> list:
+    """'2026-11-03, 2026-10-30' -> ['2026-11-03', '2026-10-30']; blanks and repeats dropped, order kept."""
+    days = []
+    for part in value.replace(";", ",").split(","):
+        part = part.strip()
+        if part and part not in days:
+            days.append(part)
+    return days
+
+
+def run_days(days, out_dir: str = "samples/indices", fetch=fetch_text, pause: float = 1.5) -> str:
+    """Check several days in one run. Each day goes to its own sub-folder (samples/indices/<day>/) with its own summary;
+    the live API is fetched only once (with the first day), and a final table lists status, rows and key indices per day."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    blocks, table = [], []
+    for i, day in enumerate(days):
+        text = run(day, str(out / day), fetch=fetch, pause=pause, with_api=(i == 0))
+        blocks.append(f"##### {day}\n{text}")
+        head = text.splitlines()[0] if text else ""
+        found = [ln for ln in text.splitlines() if "key indices found:" in ln]
+        table.append(f"{day}: {head.split(': ', 1)[-1] if head else 'no result'}"
+                     + (f" | {found[0].strip()}" if found else ""))
+    summary = "\n\n".join(blocks) + "\n\n===== one line per day =====\n" + "\n".join(table)
+    (out / "summary.txt").write_text(summary + "\n", encoding="utf-8")
+    return summary
+
+
+def run(day: str, out_dir: str = "samples/indices", fetch=fetch_text, pause: float = 1.5, with_api: bool = True) -> str:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     lines = []
-    for name, url, kind in (("index_close_csv", CSV_URL.format(ddmmyyyy=ddmmyyyy(day)), "csv"),
-                            ("all_indices_api", API_URL, "json")):
+    sources = [("index_close_csv", CSV_URL.format(ddmmyyyy=ddmmyyyy(day)), "csv")]
+    if with_api:
+        sources.append(("all_indices_api", API_URL, "json"))
+    for name, url, kind in sources:
         res = fetch(url)
         lines.append(f"== {name}: HTTP {res['status']} in {res['seconds']}s, {res.get('bytes', 0)} bytes\n   url: {url}")
         if "text" in res:
@@ -86,10 +121,16 @@ def run(day: str, out_dir: str = "samples/indices", fetch=fetch_text, pause: flo
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--day", default="2026-11-18", help="a published trading day (YYYY-MM-DD)")
+    ap.add_argument("--day", default="2026-11-18",
+                    help="a trading day (YYYY-MM-DD); several days may be given, separated by commas")
     ap.add_argument("--out", default="samples/indices")
     a = ap.parse_args(argv)
-    print(run(a.day, a.out))
+    days = split_days(a.day)
+    if not days:
+        ap.error("--day needs at least one date")
+    for d in days:
+        ddmmyyyy(d)  # a malformed date fails here, before any network call
+    print(run(days[0], a.out) if len(days) == 1 else run_days(days, a.out))
 
 
 if __name__ == "__main__":
