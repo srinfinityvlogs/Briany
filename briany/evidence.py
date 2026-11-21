@@ -24,8 +24,9 @@ from zoneinfo import ZoneInfo
 from briany.marketdata import (JUMP_PCT, MIN_JUMP_PRICE, daily_move, dividends_in, load_blockers,
                                period_return, period_start)
 from briany.news import first_token_is_unique
+from briany.indexfile import find_row
 from briany.nse import NseError
-from briany.symbols import format_choices, is_entitlement
+from briany.symbols import find_index, format_choices, is_entitlement
 
 IST = ZoneInfo("Asia/Kolkata")
 OPEN, CLOSE = time(9, 15), time(15, 30)
@@ -33,6 +34,7 @@ NEWS_DAYS = 6                 # Google News search only reaches back about a wee
 STALE_AFTER_DAYS = 4          # tunable once the publication time of NSE's file is measured
 MIN_BREADTH_STOCKS = 200
 PRICE_SOURCE = "NSE end-of-day file"
+INDEX_SOURCE = "NSE end-of-day index file"
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 # gaps that mean "a source could not be checked": they forbid saying "no clear evidence found"
@@ -69,7 +71,7 @@ class Gap:
 
 @dataclass(frozen=True)
 class Packet:
-    kind: str                     # move | return | events | clarify
+    kind: str                     # move | return | events | index | clarify
     status: str                   # ok | refused | clarify
     symbol: str = ""
     name: str = ""
@@ -96,6 +98,26 @@ def money(x: float) -> str:
 
 def pct_text(x: float) -> str:
     return f"{x:+.2f}%"
+
+
+def level_text(x: float) -> str:
+    """An index level: points, so no currency sign."""
+    return f"{x:,.2f}"
+
+
+def _index_row_problem(row) -> str:
+    """Why the figures of an index row cannot all be right, or '' when they agree. The change in points and in percent
+    must fit the close (NSE rounds both, so the allowed gap follows from rounding), and open and close lie in [low, high]."""
+    if row.points is not None and row.pct is not None:
+        prev = row.close - row.points
+        if prev <= 0:
+            return "the previous close would not be positive"
+        if abs(row.points / prev * 100 - row.pct) > 0.011 + 0.01 / prev * 100:
+            return "points and percent change differ"
+    if row.low is not None and row.high is not None:
+        if row.low > row.high or any(v is not None and not row.low <= v <= row.high for v in (row.open, row.close)):
+            return "open or close outside the day's range"
+    return ""
 
 
 def human_date(iso: str) -> str:
@@ -151,8 +173,9 @@ def _group_meetings(meetings):
 
 
 class Assembler:
-    def __init__(self, store, nse, news, resolver, now=None, names=None):
+    def __init__(self, store, nse, news, resolver, now=None, names=None, index=None):
         self.store, self.nse, self.news, self.resolver = store, nse, news, resolver
+        self.index = index                                  # IndexClient (NSE end-of-day index file), or None
         self.names = dict(names or {})                      # {symbol: full company name} from NSE's equity list
         self._now = now or (lambda: datetime.now(IST))
 
@@ -173,8 +196,8 @@ class Assembler:
             inst = res.best
             if inst.kind == "index":
                 return None, Packet("clarify", "refused", inst.symbol, self._name(inst), self._stamp(), gaps=(Gap(
-                    "index_not_supported", "Index levels are not stored; only stocks and ETFs are supported.",
-                    "missing"),))
+                    "index_not_supported", "For an index I can give the closing level on a day (for example 'Nifty 50 close \
+today'), not a stock-style move, return or filings list.", "missing"),))
             return inst, None
         return None, Packet("clarify", "clarify", as_of=self._stamp(),
                             gaps=(Gap("symbol_unresolved", format_choices(res, self._name), "missing"),),
@@ -343,6 +366,79 @@ class Assembler:
                                 "is given.", "limit"), facts=facts)
         code = "insufficient_history" if r.status == "insufficient_history" else "no_price_data"
         return self._refuse("return", inst, Gap(code, r.note or "Not enough price data.", "missing"))
+
+    # ---------------------------------------------------------------- index close
+    def _index_refusal(self, inst, *gaps, facts=()):
+        return Packet("index", "refused", inst.symbol, inst.name, self._stamp(), facts=tuple(facts), gaps=tuple(gaps))
+
+    def index_close(self, query, on=None) -> Packet:
+        """Where an NSE index closed on a day (default: the latest stored trading day). Code-built, from NSE's end-of-day
+        index file; no cause is ever stated. A missing or odd file is a gap, never another day's figures."""
+        inst = find_index(query)
+        if inst is None:
+            return Packet("clarify", "clarify", as_of=self._stamp(), gaps=(Gap(
+                "index_unresolved", f"I couldn't find an NSE index matching \"{query}\". Try a name such as Nifty 50, "
+                "Nifty Bank or India VIX.", "missing"),))
+        if self.index is None:
+            return self._index_refusal(inst, Gap("index_file_unavailable", "NSE's index file could not be fetched "
+                                                 "here, so no level is given.", "missing"))
+        latest = self.store.latest_day()
+        if not latest:
+            return self._index_refusal(inst, Gap("no_price_data", "No price data is stored, so the latest trading "
+                                                 "day is unknown.", "missing"))
+        if on is None:
+            day = latest
+        else:
+            try:
+                Date.fromisoformat(on)
+            except (TypeError, ValueError):
+                return self._index_refusal(inst, Gap("bad_date", "I could not read that date.", "missing"))
+            if on > latest:
+                return self._index_refusal(inst, Gap("no_index_data", f"No end-of-day data is stored for {human_date(on)} "
+                                                     f"yet; the latest stored day is {human_date(latest)}.", "missing"))
+            earliest = self.store.earliest_day() if hasattr(self.store, "earliest_day") else None
+            if not self.store.has_day(on):
+                if earliest and on < earliest:
+                    return self._index_refusal(inst, Gap("no_index_data", f"Index data older than {human_date(earliest)} "
+                                                         "is not available.", "missing"))
+                return self._index_refusal(inst, Gap("no_session", f"No NSE end-of-day data is stored for {human_date(on)}; "
+                                                     "it may have been a weekend or market holiday, so no close is given.",
+                                                     "missing"))
+            day = on
+        try:
+            rows = self.index.day(day)
+        except NseError:
+            return self._index_refusal(inst, Gap("index_file_unavailable", f"NSE's index file for {human_date(day)} could "
+                                                 "not be fetched (it may not be published yet), so no level is given.",
+                                                 "missing"))
+        row = find_row(rows, inst.name)
+        if row is None:
+            return self._index_refusal(inst, Gap("index_not_in_file", f"{inst.name} is not in NSE's index file for "
+                                                 f"{human_date(day)}.", "missing"))
+        if row.close is None or row.close <= 0:
+            return self._index_refusal(inst, Gap("index_figures_incomplete", f"NSE's index file has no closing level for "
+                                                 f"{inst.name} on {human_date(day)}.", "missing"))
+        problem = _index_row_problem(row)
+        if problem:
+            return self._index_refusal(inst, Gap("index_data_inconsistent", f"NSE's index file figures for {inst.name} on "
+                                                 f"{human_date(day)} do not agree with each other ({problem}), so no level "
+                                                 "is given.", "missing"))
+        src = INDEX_SOURCE
+        facts = [Fact(f"Closing level, {human_date(day)}", level_text(row.close), row.close, src, day)]
+        gaps = self._stale_gap(day) if on is None else []
+        if row.points is not None and row.pct is not None:
+            facts.append(Fact("Points change", f"{row.points:+,.2f}", row.points, src, day))
+            facts.append(Fact("Change from previous close", pct_text(row.pct), row.pct, src, day))
+        else:
+            gaps.append(Gap("index_change_missing", "NSE's file gives no change figure for this index on this date.",
+                            "limit"))
+        for label, value in (("Open", row.open), ("High", row.high), ("Low", row.low)):
+            if value is not None:
+                facts.append(Fact(label, level_text(value), value, src, day))
+        for label, value, text in (("P/E", row.pe, None), ("P/B", row.pb, None), ("Dividend yield", row.dy, "%")):
+            if value is not None:
+                facts.append(Fact(label, f"{value:.2f}{text or ''}", value, src, day))
+        return Packet("index", "ok", inst.symbol, inst.name, self._stamp(), tuple(facts), (), (), tuple(gaps), True)
 
     # ---------------------------------------------------------------- recent events and what is due
     def events(self, query, days=14) -> Packet:

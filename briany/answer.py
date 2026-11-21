@@ -15,7 +15,7 @@ import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from briany.evidence import IST, MONTHS, PRICE_SOURCE, Packet, human_date
+from briany.evidence import IST, INDEX_SOURCE, MONTHS, PRICE_SOURCE, Packet, human_date
 
 MAX_LINES = 10
 MAX_CHARS = 1400
@@ -38,6 +38,8 @@ REQUIRED_PHRASES = {
     "price_return_only": "excludes dividends",
     "next_results_not_announced": "no upcoming results meeting",
     "actions_unavailable": "could not be verified",
+    "index_file_unavailable": "could not be fetched",
+    "index_change_missing": "no change figure",
 }
 
 CAUSAL = re.compile(
@@ -65,6 +67,7 @@ ALLCAPS = re.compile(r"\b[A-Z][A-Z0-9&-]{1,11}\b")
 
 
 SUMMARY_BANNED = re.compile(r"\b(factors?|filings?|announcements?|news|headlines?|board meetings?)\b", re.I)
+EXPLAIN = re.compile(r"\b(why|what happened|what is happening|what's happening|how come|reason|what caused)\b", re.I)
 ASKS_UP = re.compile(r"\b(up|rise|rising|rose|jump\w*|surg\w*|rall\w*|gain\w*|higher)\b", re.I)
 ASKS_DOWN = re.compile(r"\b(down|fall|falling|fell|drop\w*|crash\w*|plung\w*|slump\w*|tank\w*|lower)\b", re.I)
 MAX_LINK_CHARS = 200              # longer links (Google News) are not printed in plain text
@@ -152,8 +155,10 @@ def _safety_problems(text: str, p: Packet):
     for y, m, d in _dates_in(text):
         if not any(pm == m and pd == d and (y is None or py is None or py == y) for py, pm, pd in packet_dates):
             problems.append(f"date not in the data: {d} {MONTHS[m - 1]}{' ' + str(y) if y else ''}")
-    if CLOCK.search(text):
-        problems.append(f"clock time {CLOCK.search(text).group(0)!r}: times are added by code, not the text")
+    for m in CLOCK.finditer(text):                                        # a ratio in an index name ('50:25:25') is data
+        if m.group(0).lower() not in blob.lower():
+            problems.append(f"clock time {m.group(0)!r}: times are added by code, not the text")
+            break
 
     body = BULLET.sub("", _strip_dates(URL.sub(" ", text)))
     allowed, seen = _allowed_numbers(p, blob), set()
@@ -175,7 +180,9 @@ def _safety_problems(text: str, p: Packet):
                     problems.append("direction contradicts the data (the price fell)")
 
     blob_low = blob.lower()                                               # tickers and names must come from the packet
-    for tok in set(ALLCAPS.findall(text)):
+    for tok in {t.rstrip("-") for t in ALLCAPS.findall(text)}:                # 'G-Sec' is read as 'G-': the hyphen is not the name
+        if len(tok) < 2:
+            continue
         if tok not in WHITELIST_CAPS and not re.search(rf"(?<![a-z0-9]){re.escape(tok.lower())}(?![a-z0-9])", blob_low):
             problems.append(f"name or ticker not in the data: {tok}")
     return problems, seen
@@ -198,6 +205,10 @@ def validate_text(text: str, p: Packet) -> list:
     if p.kind == "move" and p.status == "ok":
         close = p.facts[0] if p.facts else None
         for need in ([close] if close else []) + ([chg] if chg else []):
+            if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
+                problems.append(f"missing key figure: {need.label}")
+    if p.kind == "index" and p.status == "ok":
+        for need in ([p.facts[0]] if p.facts else []) + ([chg] if chg else []):
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
     if p.kind == "return" and p.status == "ok":
@@ -247,16 +258,18 @@ def validate_summary(text: str, p: Packet) -> list:
 def premise_note(question: str, p: Packet) -> list:
     """One code-written line when the question assumes a direction the data does not show."""
     chg = main_change(p)
-    if p.kind != "move" or p.status != "ok" or chg is None or chg.raw is None:
+    if p.kind not in ("move", "index") or p.status != "ok" or chg is None or chg.raw is None:
         return []
     up, down = bool(ASKS_UP.search(question or "")), bool(ASKS_DOWN.search(question or ""))
-    if up == down:
-        return []
-    if up and chg.raw <= 0:
-        return [f"Note: the change from the previous close was {chg.value}, which is not an increase."]
-    if down and chg.raw >= 0:
-        return [f"Note: the change from the previous close was {chg.value}, which is not a decrease."]
-    return []
+    notes = []
+    if up != down:
+        if up and chg.raw <= 0:
+            notes.append(f"Note: the change from the previous close was {chg.value}, which is not an increase.")
+        if down and chg.raw >= 0:
+            notes.append(f"Note: the change from the previous close was {chg.value}, which is not a decrease.")
+    if p.kind == "index" and EXPLAIN.search(question or ""):
+        notes.append("I can show where an index closed, but I don't explain index moves.")
+    return notes
 
 
 # ------------------------------------------------------------------ deterministic text
@@ -305,7 +318,7 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
     """Built from the packet alone. Passes validate_text() by construction (tested for every packet type)."""
     if p.status == "clarify":
         return p.gaps[0].text if p.gaps else "Which company do you mean? Please give the company name or NSE symbol."
-    who = f"{p.name} ({p.symbol})" if p.symbol else "this company"
+    who = p.name if p.kind == "index" else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
     if p.status == "refused":
         lines = [f"I can't give a reliable figure for {who}."] + _gap_lines(p)
         lines += [f"- {f.label}: {f.value}" + (f" ({human_date(f.date)})" if f.date else "") for f in p.facts[:3]]
@@ -314,6 +327,8 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
         return "\n".join(_move_lines(p, who, None, notes, shown_out)[:MAX_LINES])
     if p.kind == "return":
         return "\n".join(_return_lines(p, who)[:MAX_LINES])
+    if p.kind == "index":
+        return "\n".join(_index_lines(p, who, notes)[:MAX_LINES])
     return "\n".join(_events_lines(p, who, shown_out)[:MAX_LINES])
 
 
@@ -376,6 +391,29 @@ def _return_lines(p: Packet, who: str):
     return lines + _gap_lines(p)
 
 
+def _index_lines(p: Packet, who: str, notes=()):
+    by = {f.label: f for f in p.facts}
+    close = p.facts[0]
+    chg, pts = main_change(p), by.get("Points change")
+    if chg is not None and pts is not None and chg.raw is not None and pts.raw is not None:
+        if chg.raw == 0 and pts.raw == 0:
+            move = "unchanged from the previous close"
+        else:
+            move = f"{'up' if pts.raw > 0 else 'down'} {abs(pts.raw):,.2f} points ({chg.value}) from the previous close"
+        first = f"{who} closed at {close.value} on {human_date(close.date)}, {move}."
+    else:
+        first = f"{who} closed at {close.value} on {human_date(close.date)}."
+    lines = [first]
+    rng = [f"{label.lower()} {by[label].value}" for label in ("Open", "High", "Low") if label in by]
+    if rng:
+        lines.append("; ".join(rng).capitalize() + ".")
+    val = [f"{label if label != 'Dividend yield' else 'dividend yield'} {by[label].value}"
+           for label in ("P/E", "P/B", "Dividend yield") if label in by]
+    if val:
+        lines.append("NSE publishes " + "; ".join(val) + ".")
+    return lines + list(notes) + _gap_lines(p)
+
+
 def _events_lines(p: Packet, who: str, shown_out=None):
     lines = [f"{who}: recent exchange filings and what is due."]
     lines += [f"{f.label}: {f.value}." for f in p.facts]
@@ -422,8 +460,10 @@ def build_footer(p: Packet, html_links: bool = False, factors=None) -> str:
             lines.append(f"Link: {label} {url}")
         else:
             lines.append(f"Link: {label} (long link not shown in plain text)")
-    prices = any(f.source.startswith(PRICE_SOURCE) for f in list(p.facts) + list(p.context))
-    price_note = "Prices are NSE official end-of-day closes, not live quotes."
+    prices = any(f.source.startswith(PRICE_SOURCE) or f.source == INDEX_SOURCE for f in list(p.facts) + list(p.context))
+    index = any(f.source == INDEX_SOURCE for f in p.facts)
+    price_note = ("Index levels are NSE official end-of-day values, not live." if index
+                  else "Prices are NSE official end-of-day closes, not live quotes.")
     try:
         stamp = datetime.fromisoformat(p.as_of).astimezone(IST)
         lines.append(f"As of {stamp.day} {MONTHS[stamp.month - 1]} {stamp.year}, {stamp:%H:%M} IST." + (f" {price_note}" if prices else ""))

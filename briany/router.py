@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from datetime import date as Date, timedelta
 
 from briany.llm import LlmError
+from briany.symbols import find_index
 
 PERIODS = ("1w", "1m", "3m", "6m", "1y", "ytd")
-UNSUPPORTED_REASONS = ("comparison", "advice", "prediction", "market_data", "period", "company_not_found", "other")
+UNSUPPORTED_REASONS = ("comparison", "advice", "prediction", "market_data", "index_not_covered", "index_period", "period",
+                       "company_not_found", "other")
 MAX_QUESTION = 300
 
 TOOLS = [
@@ -36,10 +38,19 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "company name or NSE symbol exactly as the user wrote it"}},
          "required": ["query"]}},
+    {"name": "index_close",
+     "description": "Where an NSE index (Nifty 50, Nifty Bank, Nifty IT, India VIX, ...) closed on a day: close, change, "
+                    "open/high/low. Use for 'how is the nifty', 'bank nifty today', 'why is the nifty down'. Not for BSE "
+                    "indices such as the Sensex and not for index returns over a period.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "index name exactly as the user wrote it"},
+         "date": {"type": "string", "description": "YYYY-MM-DD if the user named a day; omit for the latest"}},
+         "required": ["query"]}},
     {"name": "unsupported",
-     "description": "Use when the question is NOT about one listed stock's move, return or filings: comparing "
-                    "stocks, buy/sell advice, price predictions, market-wide data (FII/DII, bulk deals, indices), "
-                    "or anything else.",
+     "description": "Use when the question is NOT about one listed stock's move, return or filings, or an NSE index's "
+                    "close: comparing stocks, buy/sell advice, price predictions, market-wide data (FII/DII, bulk deals), "
+                    "BSE indices such as the Sensex (index_not_covered), an index's return over a period "
+                    "(index_period), or anything else.",
      "parameters": {"type": "object", "properties": {
          "reason": {"type": "string", "enum": list(UNSUPPORTED_REASONS), "description": "why it is unsupported"}},
          "required": ["reason"]}},
@@ -54,6 +65,8 @@ Rules:
 3. date: only if the user named a day. Today is {today}. Resolve 'yesterday' and dates without a year against it.
 4. period_return needs a period from the allowed list; anything else (for example '2 years') is unsupported.
 5. Comparing two stocks, buy/sell advice, price predictions and market-wide data are unsupported.
+   An NSE index's close on a day uses index_close; the Sensex or another BSE index is unsupported
+   (index_not_covered); an index's return over a period is unsupported (index_period).
 6. If the question names no company ('why did it fall?', 'and last month?', 'what about it?') and a previous
    company is given below, use that previous symbol as the query. Only say company_not_found when none is given.
 {context}"""
@@ -80,7 +93,7 @@ class RouteError(ValueError):
 def validate_route(name, args, today: str, source: str = "") -> Route:
     """Check a tool call from the model. Returns a cleaned Route or raises RouteError."""
     args = args if isinstance(args, dict) else {}
-    if name in ("why_moved", "period_return", "events"):
+    if name in ("why_moved", "period_return", "events", "index_close"):
         query = str(args.get("query") or "").strip()
         tail = re.search(r"\(([A-Za-z0-9&.-]{2,20})\)\s*$", query)          # "Tata Steel Limited (TATASTEEL)"
         if tail:
@@ -96,6 +109,7 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
             return Route("period_return", {"query": query, "period": period}, source)
         raw = str(args.get("date") or "").strip()
         out = {"query": query}
+        tool = "index_close" if name == "index_close" else "why_moved"
         if raw:
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
                 raise RouteError("date must be YYYY-MM-DD")
@@ -107,7 +121,7 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
                 raise RouteError("date is in the future")
             if raw != today:                 # "today" means the latest close; keeps the stale-data check active
                 out["date"] = raw
-        return Route("why_moved", out, source)
+        return Route(tool, out, source)
     if name == "unsupported":
         reason = str(args.get("reason") or "other").strip().lower()
         return Route("unsupported", {"reason": reason if reason in UNSUPPORTED_REASONS else "other"}, source)
@@ -131,7 +145,8 @@ SMALL = re.compile(r"^\s*/?(hi|hello|hey|help|start|thanks|thank you|namaste)\b|
                    r"^\s*(what can you do|what do you do|who are you|how (do|does) (this|it|you) work|can you help)", re.I)
 ADVICE = re.compile(r"\b(should i|shall i|buy|sell|hold|invest|investment|target price|good stock|worth buying|safe to)\b", re.I)
 PREDICT = re.compile(r"\b(will|would it|going to|predict|prediction|forecast|expect|expected to|tomorrow|next week|next month)\b", re.I)
-MARKET = re.compile(r"\b(fiis?|diis?|fpis?|bulk deals?|block deals?|nifty|sensex|bank nifty|index|indices|market wide)\b", re.I)
+MARKET = re.compile(r"\b(fiis?|diis?|fpis?|bulk deals?|block deals?|index|indices|market wide)\b", re.I)
+BSE_INDEX = re.compile(r"\b(sensex|bankex|bse\s*(sensex|\d+|smallcap|midcap|largecap|allcap))\b", re.I)
 COMPARE = re.compile(r"\b(compare|versus|vs\.?|better than|against)\b", re.I)
 RETURN = re.compile(r"\b(returns?|gains?|gained|performance|performed|how much has|since|grown|growth)\b", re.I)
 EVENTS = re.compile(r"\b(results?|earnings|announce\w*|filings?|board meetings?|dividends?|bonus|split|due|upcoming|"
@@ -217,20 +232,57 @@ def find_companies(q: str, resolver):
     return [(text, sym) for _i, text, sym in found]
 
 
+def find_indices(q: str):
+    """Non-overlapping NSE index mentions, longest first: [(text_as_typed, Instrument)] in the order they appear."""
+    words = re.findall(r"[A-Za-z0-9&.'-]+", q)
+    taken, found = [False] * len(words), []
+    for size in (7, 6, 5, 4, 3, 2, 1):
+        for i in range(len(words) - size + 1):
+            if any(taken[i:i + size]):
+                continue
+            text = " ".join(words[i:i + size])
+            inst = find_index(text)
+            if inst:
+                found.append((i, text, inst))
+                for j in range(i, i + size):
+                    taken[j] = True
+    found.sort(key=lambda x: x[0])
+    return [(text, inst) for _i, text, inst in found]
+
+
+def _without(q: str, texts) -> str:
+    for t in texts:
+        q = re.sub(re.escape(t), " ", q, count=1, flags=re.I)
+    return q
+
+
 def rule_route(question: str, resolver, today: str, context: Context | None = None) -> Route:
     q = " ".join(question.split())[:MAX_QUESTION]
     t = Date.fromisoformat(today)
     context = context or Context()
     if SMALL.search(q):
         return Route("smalltalk", {}, "rules")
-    companies = find_companies(q, resolver)
+    indices = find_indices(q)
+    companies = find_companies(_without(q, [t for t, _i in indices]), resolver)    # an index name is not a company
     symbols = {s for _t, s in companies}
     if ADVICE.search(q):
         return Route("unsupported", {"reason": "advice"}, "rules")
     if PREDICT.search(q) and not re.search(r"\bwhy\b", q, re.I):
         return Route("unsupported", {"reason": "prediction"}, "rules")
-    if len(symbols) >= 2 or COMPARE.search(q):
+    if len(symbols) + len({i.symbol for _t, i in indices}) >= 2 or COMPARE.search(q):
         return Route("unsupported", {"reason": "comparison"}, "rules")
+    if BSE_INDEX.search(q) and not symbols:
+        return Route("unsupported", {"reason": "index_not_covered"}, "rules")
+    last_is_index = bool(context.last_symbol and find_index(context.last_symbol))
+    if not symbols and (indices or (last_is_index and not MARKET.search(q) and
+                                    (PRONOUN.search(q) or parse_period(q)[1] or parse_date(q, t)))):
+        if parse_period(q)[1] or RETURN.search(q):
+            return Route("unsupported", {"reason": "index_period"}, "rules")
+        args = {"query": indices[0][0] if indices else context.last_symbol}
+        d = parse_date(q, t)
+        if d and Date.fromisoformat(d) <= t:
+            args["date"] = d
+        return Route("index_close", args, "rules")
     if MARKET.search(q) and not symbols:
         return Route("unsupported", {"reason": "market_data"}, "rules")
     if companies:
@@ -261,6 +313,16 @@ class Routed:
     fell_back: bool = False
 
 
+def _fix_index_route(route: Route, today: str) -> Route:
+    """A model that sends an index name to a stock tool is corrected here: an index has no filings, and its return over a
+    period is not offered."""
+    if route.tool in ("why_moved", "period_return", "events") and find_index(route.args.get("query", "")):
+        if route.tool == "why_moved":
+            return Route("index_close", route.args, route.source)
+        return Route("unsupported", {"reason": "index_period" if route.tool == "period_return" else "other"}, route.source)
+    return route
+
+
 def route_question(question, chain, resolver, today: str, context: Context | None = None) -> Routed:
     q = " ".join(str(question or "").split())[:MAX_QUESTION]
     if not q:
@@ -280,9 +342,16 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
         r = holder["route"]
         if r.tool == "unsupported" and r.args.get("reason") in ("company_not_found", "other"):
             second = rule_route(q, resolver, today, context)          # the rules only answer when a company resolves
-            if second.tool in ("why_moved", "period_return", "events"):
+            if second.tool in ("why_moved", "period_return", "events", "index_close") or (
+                    second.tool == "unsupported" and second.args.get("reason") in ("index_not_covered", "index_period")):
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
-        return Routed(Route(r.tool, r.args, f"llm:{provider}"), tuple(attempts), False)
+        if r.tool == "unsupported" and r.args.get("reason") == "market_data":      # the model sees indices as market data
+            second = rule_route(q, resolver, today, context)
+            if second.tool == "index_close" or (second.tool == "unsupported" and second.args.get("reason") in (
+                    "index_not_covered", "index_period")):
+                return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
+        fixed = _fix_index_route(Route(r.tool, r.args, f"llm:{provider}"), today)
+        return Routed(fixed, tuple(attempts), False)
     except LlmError as e:
         attempts = tuple(tuple(a.split("=", 1)) for a in str(e).split(": ", 1)[-1].split(", ")) if e.kind == "all_failed" else ()
         return Routed(rule_route(q, resolver, today, context), attempts, True)

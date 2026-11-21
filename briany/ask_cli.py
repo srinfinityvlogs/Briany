@@ -12,6 +12,7 @@ import time
 
 from briany.bot import Bot
 from briany.evidence import Assembler
+from briany.indexfile import IndexClient
 from briany.llm import Chain, GeminiClient, GroqClient
 from briany.news import NewsClient
 from briany.nse import NseClient
@@ -26,6 +27,9 @@ SUITE = [
     ("why did angel one fall on 26 feb", None),
     ("ril 6 month return", None),
     ("compare tcs and infosys", None),
+    ("how is the nifty doing", None),
+    ("bank nifty on 3 nov", None),
+    ("sensex today", None),
 ]
 
 
@@ -44,7 +48,8 @@ def build_bot():
     if settings.gemini_api_key:
         providers.append(GeminiClient(settings.gemini_api_key, model=settings.gemini_model))
     _names_day, names = store.get_names()
-    asm = Assembler(store, NseClient(min_interval=settings.nse_min_interval_seconds), NewsClient(), resolver, names=names)
+    asm = Assembler(store, NseClient(min_interval=settings.nse_min_interval_seconds), NewsClient(), resolver, names=names,
+                    index=IndexClient())
     return Bot(asm, Chain(providers), resolver)
 
 

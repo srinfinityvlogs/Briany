@@ -23,7 +23,7 @@ def build_suite(today: str):
     yday = (t - timedelta(days=1)).isoformat()
     nov5 = Date(t.year if t >= Date(t.year, 11, 5) else t.year - 1, 11, 5).isoformat()
     rel, tcs = Context("RELIANCE", "Reliance Industries Limited"), Context("TCS", "Tata Consultancy Services Limited")
-    W, R, E, U = "why_moved", "period_return", "events", "unsupported"
+    W, R, E, U, I = "why_moved", "period_return", "events", "unsupported", "index_close"
     return [
         ("why is tata steel up today", {"tool": W, "query_has": "tata steel"}, None),
         ("Why did Reliance fall on 5 Nov?", {"tool": W, "query_has": "reliance", "date": nov5}, None),
@@ -41,7 +41,13 @@ def build_suite(today: str):
         ("should I buy Reliance now", {"tool": U, "reason": "advice"}, None),
         ("will Reliance hit 1500 next week", {"tool": U, "reason": "prediction"}, None),
         ("what are FIIs doing today", {"tool": U, "reason": "market_data"}, None),
-        ("how is the nifty doing", {"tool": U, "reason": "market_data"}, None),
+        ("how is the nifty doing", {"tool": I, "query_has": "nifty"}, None),
+        ("bank nifty close on 5 Nov", {"tool": I, "query_has": "bank nifty", "date": nov5}, None),
+        ("why is the nifty down today", {"tool": I, "query_has": "nifty"}, None),
+        ("india vix yesterday", {"tool": I, "query_has": "vix", "date": yday}, None),
+        ("how is the sensex today", {"tool": U, "reason": "index_not_covered"}, None),
+        ("nifty 50 one year return", {"tool": U, "reason": "index_period"}, None),
+        ("and yesterday?", {"tool": I, "query_has": "nifty 50", "date": yday}, Context("NIFTY 50", "Nifty 50")),
         ("hi", {"tool": "smalltalk"}, None),
         ("what can you do", {"tool": "smalltalk"}, None),
         ("why is relience up", {"tool": W, "query_has": "relience"}, None),

@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "why, return or events"
+        description: "why, return, events or index"
         required: true
         default: "why"
       query:
-        description: "Company name or NSE symbol, e.g. reliance"
+        description: "Company name or NSE symbol, e.g. reliance (index mode: an index name, e.g. nifty bank)"
         required: true
         default: "reliance"
       date:
-        description: "Date YYYY-MM-DD for 'why' (empty = latest close)"
+        description: "Date YYYY-MM-DD for 'why' or 'index' (empty = latest close)"
         required: false
         default: ""
       period:

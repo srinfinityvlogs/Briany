@@ -18,13 +18,14 @@ from briany.evidence import IST, Assembler
 from briany.marketdata import PriceRow
 from briany.news import NewsItem, NewsResult
 from briany.nse import NseError
+from briany.indexfile import IndexRow
 from briany.nse_parsers import Announcement, BoardMeeting, CorpAction, Deal, EventItem, FiiDii
 from briany.store import MemoryStore, StoredAction, pack_day, pack_instruments, unpack_day, unpack_instruments
 from briany.symbols import Resolver
 
 VERSION = 1
 PERIODS = ("1w", "1m", "3m", "6m", "1y", "ytd")
-_CLASSES = {c.__name__: c for c in (Announcement, BoardMeeting, CorpAction, Deal, EventItem, FiiDii, NewsItem,
+_CLASSES = {c.__name__: c for c in (Announcement, BoardMeeting, CorpAction, Deal, EventItem, FiiDii, IndexRow, NewsItem,
                                     NewsResult, StoredAction)}
 
 
@@ -123,11 +124,12 @@ def run_call(asm, call):
 
 
 # ------------------------------------------------------------------ capture
-def capture_snapshot(store, instruments, nse, news, now, calls) -> dict:
+def capture_snapshot(store, instruments, nse, news, now, calls, index=None) -> dict:
     resolver = Resolver(instruments)
     rec_nse, rec_news = Recorder(nse), Recorder(news)
+    rec_index = Recorder(index) if index is not None else None
     _names_day, all_names = store.get_names()
-    asm = Assembler(store, rec_nse, rec_news, resolver, now=lambda: now, names=all_names)
+    asm = Assembler(store, rec_nse, rec_news, resolver, now=lambda: now, names=all_names, index=rec_index)
     results = [{"id": c["id"], "call": c, "packet": jsonable(run_call(asm, c))} for c in calls]
     symbols = sorted({r["packet"]["symbol"] for r in results if r["packet"]["symbol"]})
     shown = set(symbols) | {m.group(1) for r in results for c in r["packet"]["choices"]
@@ -145,7 +147,7 @@ def capture_snapshot(store, instruments, nse, news, now, calls) -> dict:
                 prices[s][d] = [r.close, r.prev_close, r.volume]
         if d in scenario_days:
             full_days[d] = pack_day(rows)                         # the whole market that day, for the breadth context
-    return {
+    snap = {
         "version": VERSION,
         "captured_at": now.isoformat(timespec="seconds"),
         "latest_day": store.latest_day(),
@@ -162,6 +164,9 @@ def capture_snapshot(store, instruments, nse, news, now, calls) -> dict:
         "news_calls": rec_news.calls,
         "results": results,
     }
+    if rec_index is not None:
+        snap["index_calls"] = rec_index.calls              # only present when index scenarios were captured
+    return snap
 
 
 def save_snapshot(snap: dict, path) -> None:
@@ -198,7 +203,7 @@ def replay_assembler(snap: dict):
     store = replay_store(snap)
     _day, instruments = store.get_instruments()
     asm = Assembler(store, Replay(snap["nse_calls"]), Replay(snap["news_calls"]), Resolver(instruments),
-                    now=lambda: now, names=snap.get("names"))
+                    now=lambda: now, names=snap.get("names"), index=Replay(snap.get("index_calls", {})))
     return asm, now
 
 

@@ -10,6 +10,7 @@ def build_handler(env=None, client=None, api_post=None):
     """Settings -> Redis -> instrument list -> Bot -> Handler. `client` and `api_post` exist so tests can inject fakes."""
     from briany.bot import Bot
     from briany.evidence import Assembler
+    from briany.indexfile import IndexClient
     from briany.llm import Chain, GeminiClient, GroqClient
     from briany.news import NewsClient
     from briany.nse import NseClient, RedisCache
@@ -38,7 +39,7 @@ def build_handler(env=None, client=None, api_post=None):
         providers.append(GeminiClient(settings.gemini_api_key, model=settings.gemini_model))
     cache = RedisCache(client)
     assembler = Assembler(store, NseClient(cache=cache, min_interval=settings.nse_min_interval_seconds),
-                          NewsClient(cache=cache), resolver, names=names)
+                          NewsClient(cache=cache), resolver, names=names, index=IndexClient(cache=cache))
     bot = Bot(assembler, Chain(providers), resolver)
     state = State(client, context_ttl=settings.context_ttl_seconds, per_minute=settings.rate_limit_per_minute,
                   per_day=settings.rate_limit_per_day)

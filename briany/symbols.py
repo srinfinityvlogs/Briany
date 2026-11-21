@@ -14,6 +14,8 @@ from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
+from briany.index_names import ALIASES, INDEX_NAMES, index_key
+
 # Series we treat as tradable equities/ETFs. UNVERIFIED: confirm with --stats on real data.
 ALLOWED_SERIES = frozenset({"EQ", "BE", "BZ", "SM", "ST"})
 NAME_STOPWORDS = frozenset({"ltd", "lt", "limited", "co", "company", "pvt", "private", "the"})
@@ -51,18 +53,30 @@ class Resolution:
         return self.matches[0].instrument if self.matches else None
 
 
-# Index names must equal the "index" field of NSE's allIndices feed.
-# "NIFTY 50" is verified (spike, Nov 2026); "NIFTY BANK" is UNVERIFIED.
-INDICES = (
-    Instrument("NIFTY 50", "NIFTY 50", kind="index"),
-    Instrument("NIFTY BANK", "NIFTY BANK", kind="index"),
-)
+# Indices come from NSE's end-of-day index file; briany/index_names.py lists the names. symbol is the upper-case name,
+# name is the name as NSE publishes it. Lookups use index_key() (no word is dropped, see there), never normalize().
+INDICES = tuple(Instrument(n.upper(), n, kind="index") for n in INDEX_NAMES)
+_BY_NAME = {index_key(i.name): i for i in INDICES}
+_BY_COMPACT = {k.replace(" ", ""): i for k, i in _BY_NAME.items()}
+_BY_ALIAS = {}
+for _alias, _name in ALIASES.items():
+    _BY_ALIAS[index_key(_alias)] = _BY_NAME[index_key(_name)]
+    _BY_ALIAS[index_key(_alias).replace(" ", "")] = _BY_NAME[index_key(_name)]
+
+
+def find_index(text: str):
+    """The NSE index a text names exactly (or by a listed nickname), else None. No fuzzy matching: a wrong index is worse
+    than a question back."""
+    k = index_key(text)
+    if not k:
+        return None
+    return _BY_NAME.get(k) or _BY_ALIAS.get(k) or _BY_COMPACT.get(k.replace(" ", "")) or _BY_ALIAS.get(k.replace(" ", ""))
+
+
 # Well-known nicknames that are not part of NSE's company names. Applied only when the target symbol exists
 # in the loaded universe and the query is not itself an exact symbol. Keys are normalised (see normalize()).
 NICKNAMES = {"ril": "RELIANCE", "sbi": "SBIN", "hul": "HINDUNILVR", "airtel": "BHARTIARTL", "l and t": "LT"}
-INDEX_ALIASES = {"nifty": "NIFTY 50", "nifty50": "NIFTY 50", "nifty 50": "NIFTY 50",
-                 "banknifty": "NIFTY BANK", "bank nifty": "NIFTY BANK",
-                 "nifty bank": "NIFTY BANK"}
+
 
 
 ENTITLEMENT = re.compile(r"-RE\d*$")      # rights entitlements: short-lived, option-like instruments
@@ -126,7 +140,7 @@ class Resolver:
             cur = best.get(i.symbol)
             if cur is None or i.turnover > cur.turnover:
                 best[i.symbol] = i
-        self._all = list(best.values()) + list(INDICES)
+        self._all = list(best.values())            # indices are matched exactly by find_index(), never fuzzily
 
     def name_prefix_count(self, token: str) -> int:
         """How many listed companies (not indices, not rights entitlements) have this first name word."""
@@ -145,10 +159,9 @@ class Resolver:
         qc = q.replace(" ", "")
         if not qc:
             return Resolution("none", query, ())
-        alias = INDEX_ALIASES.get(q) or INDEX_ALIASES.get(qc)
-        if alias:
-            inst = next(i for i in INDICES if i.symbol == alias)
-            return Resolution("exact", query, (Match(inst, 1.0),))
+        idx = find_index(query)
+        if idx:
+            return Resolution("exact", query, (Match(idx, 1.0),))
         nick = NICKNAMES.get(q)
         if nick:
             target = next((i for i in self._all if i.symbol == nick and i.kind == "equity"), None)

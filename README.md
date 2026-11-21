@@ -103,7 +103,7 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 |---|---|
 | `ingest-prices` | Scheduled daily load of end-of-day files and corporate actions; also backfill and read-only checks |
 | `ask-bot` | Ask the full bot a question on real data and read the result in the log |
-| `assemble-evidence` | Print the verified packet (before any model) for one question |
+| `assemble-evidence` | Print the verified packet (before any model) for one question (modes: why, return, events, index) |
 | `route-test` | Check how the question router behaves on a built-in set of questions |
 | `crosscheck-actions` | Check that large one-day moves match NSE's corporate-action list |
 | `refresh-names` | Scheduled daily: store NSE's full company names (cosmetic; a failure never affects prices or answers) |
@@ -144,8 +144,15 @@ a new release of a library can never change a deployment on its own.
 
 ## Known limits
 
-- One stock or ETF per question. No comparisons, index levels, intraday prices, bulk-deal or market-wide questions,
+- One stock or ETF, or one NSE index, per question. No comparisons, intraday prices, bulk-deal or market-wide questions,
   result figures, or US markets yet.
+- Indices: only the day's close, change, open/high/low and NSE's published P/E, P/B and dividend yield, from NSE's
+  end-of-day index file, fetched on demand and cached for a few hours (nothing is stored per day). No index returns over a
+  period, no history, no explanation of why an index moved (the bot says so in one line), and no BSE indices such as the
+  Sensex. The 167 index names come from the 3 Nov 2026 file, so an index NSE adds later is not recognised until
+  `briany/index_names.py` is updated. A missing or odd file is reported as "could not be fetched", never as another day's
+  figures. NSE answers HTTP 200 with an HTML error page for a day without a file (seen on 10 Nov 2026), so the file's
+  content is checked, not the status code.
 - Stocks are called by NSE's full company name everywhere. ETFs and SME stocks keep the short, truncated name from the
   price file (for example `NIP IND ETF GOLD BEES`): on 20 Nov 2026 NSE's ETF list had no proper-name column and its SME
   list held a single row. Run `name-samples` again to see whether that has changed.
