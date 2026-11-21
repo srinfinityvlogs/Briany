@@ -46,7 +46,7 @@ def build_suite(today: str):
         ("why is the nifty down today", {"tool": I, "query_has": "nifty"}, None),
         ("india vix yesterday", {"tool": I, "query_has": "vix", "date": yday}, None),
         ("how is the sensex today", {"tool": U, "reason": "index_not_covered"}, None),
-        ("nifty 50 one year return", {"tool": U, "reason": "index_period"}, None),
+        ("nifty 50 one year return", {"tool": R, "query_has": "nifty 50", "period": "1y"}, None),
         ("and yesterday?", {"tool": I, "query_has": "nifty 50", "date": yday}, Context("NIFTY 50", "Nifty 50")),
         ("hi", {"tool": "smalltalk"}, None),
         ("what can you do", {"tool": "smalltalk"}, None),

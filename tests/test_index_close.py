@@ -285,10 +285,11 @@ def test_why_questions_get_the_facts_and_one_plain_line_never_a_cause():
 def test_sensex_and_returns_and_follow_ups_route_in_code():
     r = lambda q, c=None: rule_route(q, RESOLVER, "2026-11-04", c)           # noqa: E731
     assert r("sensex today").args == {"reason": "index_not_covered"}
-    assert r("nifty 1 month return").args == {"reason": "index_period"}
+    assert r("nifty 1 month return").args == {"query": "nifty", "period": "1m"}
+    assert r("nifty 1 month return").tool == "period_return"
     assert r("nifty it today").args == {"query": "nifty it"}
     assert r("and on 3 nov?", Context("NIFTY BANK", "Nifty Bank")).args == {"query": "NIFTY BANK", "date": "2026-11-03"}
-    assert r("and last month?", Context("NIFTY BANK", "Nifty Bank")).args == {"reason": "index_period"}
+    assert r("and last month?", Context("NIFTY BANK", "Nifty Bank")).args == {"query": "NIFTY BANK", "period": "1m"}
     assert r("what are FIIs doing", Context("NIFTY BANK", "Nifty Bank")).args == {"reason": "market_data"}
     assert r("tcs today", Context("NIFTY BANK", "Nifty Bank")).tool == "why_moved"
 
@@ -306,7 +307,7 @@ def test_a_model_that_sends_an_index_to_a_stock_tool_is_corrected_in_code():
     def go(tool, args, q="nifty"):
         return route_question(q, Chain([Prov(tool, args)]), RESOLVER, "2026-11-04").route
     assert go("why_moved", {"query": "nifty bank", "date": "2026-11-03"}).tool == "index_close"
-    assert go("period_return", {"query": "nifty", "period": "1m"}).args == {"reason": "index_period"}
+    assert go("period_return", {"query": "nifty", "period": "1m"}).tool == "period_return"     # an index return is offered now
     assert go("events", {"query": "nifty"}).tool == "unsupported"
     assert go("unsupported", {"reason": "market_data"}, "how is the nifty").tool == "index_close"
     assert go("unsupported", {"reason": "market_data"}, "what are FIIs doing").args == {"reason": "market_data"}
@@ -347,7 +348,6 @@ def test_end_to_end_refusals_are_plain_and_keep_no_stock_footer():
     ans = Bot(a.asm, DeadChain(), RESOLVER, now=lambda: datetime(2026, 11, 10, 20, 0, tzinfo=IST)).ask("nifty today")
     assert ans.kind == "index" and "could not be fetched" in ans.text and "23,810" not in ans.text
     assert bot().ask("sensex today").text.startswith("I only have NSE indices")
-    assert bot().ask("nifty one year return").text.startswith("For an index I can give the closing level")
     assert "Nifty 50 close today" in bot().ask("what is the index today").text
 
 

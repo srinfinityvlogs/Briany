@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date as Date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from briany.marketdata import (JUMP_PCT, MIN_JUMP_PRICE, daily_move, dividends_in, load_blockers,
+from briany.marketdata import (JUMP_PCT, MAX_GAP_DAYS, MIN_JUMP_PRICE, daily_move, dividends_in, load_blockers,
                                period_return, period_start)
 from briany.news import first_token_is_unique
 from briany.indexfile import find_row
@@ -71,7 +71,7 @@ class Gap:
 
 @dataclass(frozen=True)
 class Packet:
-    kind: str                     # move | return | events | index | clarify
+    kind: str                     # move | return | events | index | index_return | clarify
     status: str                   # ok | refused | clarify
     symbol: str = ""
     name: str = ""
@@ -103,6 +103,13 @@ def pct_text(x: float) -> str:
 def level_text(x: float) -> str:
     """An index level: points, so no currency sign."""
     return f"{x:,.2f}"
+
+
+def _is_not_price_type(name: str) -> bool:
+    """Series whose percentage change means nothing: a volatility level (India VIX) and an index of accumulated dividend
+    points (Nifty50 Dividend Points moved +920% in 6 months in the real files)."""
+    n = name.lower()
+    return "vix" in n or "dividend points" in n
 
 
 def _index_row_problem(row) -> str:
@@ -326,6 +333,9 @@ today'), not a stock-style move, return or filings list.", "missing"),))
 
     # ---------------------------------------------------------------- period return
     def period_return(self, query, label=None, start=None, end=None) -> Packet:
+        idx = find_index(query)
+        if idx is not None:
+            return self.index_return(idx, label, start, end)
         inst, clar = self._resolve(query)
         if clar:
             return clar
@@ -366,6 +376,60 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                                 "is given.", "limit"), facts=facts)
         code = "insufficient_history" if r.status == "insufficient_history" else "no_price_data"
         return self._refuse("return", inst, Gap(code, r.note or "Not enough price data.", "missing"))
+
+    # ---------------------------------------------------------------- index return
+    def index_return(self, inst, label=None, start=None, end=None) -> Packet:
+        """Change in an NSE index's level between two closes: the last stored trading day on or before the target start
+        (the same calendar and 7-day limit as stock returns) and the latest stored day. Two index files are read; if either
+        is missing, or the index is not in the older one, no return is given. Code-built; no cause is ever stated."""
+        def refuse(*gaps, facts=()):
+            return Packet("index_return", "refused", inst.symbol, inst.name, self._stamp(), tuple(facts), gaps=tuple(gaps))
+        if _is_not_price_type(inst.name):
+            return refuse(Gap("index_not_a_price", f"{inst.name} is not a price-type index, so a percentage change over a "
+                              "period is not meaningful. I can give its close on a day.", "limit"))
+        if self.index is None:
+            return refuse(Gap("index_file_unavailable", "NSE's index file could not be fetched here, so no return is "
+                              "given.", "missing"))
+        end = end or self.store.latest_day()
+        if not end:
+            return refuse(Gap("no_price_data", "No price data is stored.", "missing"))
+        target = start or (period_start(end, label) if label else None)
+        if not target:
+            return refuse(Gap("bad_period", "Unknown period; use 1w, 1m, 3m, 6m, 1y, ytd or give a start date.", "missing"))
+        end_day, start_day = self.store.day_on_or_before(end), self.store.day_on_or_before(target)
+        if end_day is None:
+            return refuse(Gap("no_price_data", "No price data is stored.", "missing"))
+        if start_day is None or (Date.fromisoformat(target) - Date.fromisoformat(start_day)).days > MAX_GAP_DAYS:
+            earliest = self.store.earliest_day()
+            return refuse(Gap("insufficient_history", f"Stored history starts {earliest}; need data near {target}.",
+                              "missing"))
+        if start_day == end_day:
+            return refuse(Gap("no_data", "Start and end fall on the same trading day.", "missing"))
+        rows = {}
+        for day in (start_day, end_day):
+            try:
+                found = find_row(self.index.day(day), inst.name)
+            except NseError:
+                return refuse(Gap("index_file_unavailable", f"NSE's index file for {human_date(day)} could not be fetched "
+                                  "(it may not be published yet), so no return is given.", "missing"))
+            if found is None:
+                return refuse(Gap("index_not_in_file", f"{inst.name} is not in NSE's index file for {human_date(day)}, so "
+                                  "no return is given for this period.", "missing"))
+            if found.close is None or found.close <= 0 or _index_row_problem(found):
+                return refuse(Gap("index_data_inconsistent", f"NSE's index file figures for {inst.name} on "
+                                  f"{human_date(day)} are missing or do not agree with each other, so no return is given.",
+                                  "missing"))
+            rows[day] = found
+        a, b = rows[start_day].close, rows[end_day].close
+        pct = round((b / a - 1) * 100, 2)
+        src = INDEX_SOURCE
+        facts = (Fact(f"Closing level, {human_date(start_day)}", level_text(a), a, src, start_day),
+                 Fact(f"Closing level, {human_date(end_day)}", level_text(b), b, src, end_day),
+                 Fact("Change in index level", pct_text(pct), pct, src, end_day))
+        gaps = [Gap("index_level_change", "This is the change in the index level between the two closes; dividends are "
+                    "not included unless the index itself is a total-return index.", "info")]
+        gaps += self._stale_gap(end_day) if end == self.store.latest_day() else []
+        return Packet("index_return", "ok", inst.symbol, inst.name, self._stamp(), facts, (), (), tuple(gaps), True)
 
     # ---------------------------------------------------------------- index close
     def _index_refusal(self, inst, *gaps, facts=()):

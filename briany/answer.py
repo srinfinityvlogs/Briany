@@ -211,6 +211,10 @@ def validate_text(text: str, p: Packet) -> list:
         for need in ([p.facts[0]] if p.facts else []) + ([chg] if chg else []):
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
+    if p.kind == "index_return" and p.status == "ok":
+        for need in p.facts:
+            if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
+                problems.append(f"missing key figure: {need.label}")
     if p.kind == "return" and p.status == "ok":
         ret = next((f for f in p.facts if f.label == "Price return"), None)
         if ret and _dec(ret.value) not in seen:
@@ -318,7 +322,7 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
     """Built from the packet alone. Passes validate_text() by construction (tested for every packet type)."""
     if p.status == "clarify":
         return p.gaps[0].text if p.gaps else "Which company do you mean? Please give the company name or NSE symbol."
-    who = p.name if p.kind == "index" else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
+    who = p.name if p.kind in ("index", "index_return") else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
     if p.status == "refused":
         lines = [f"I can't give a reliable figure for {who}."] + _gap_lines(p)
         lines += [f"- {f.label}: {f.value}" + (f" ({human_date(f.date)})" if f.date else "") for f in p.facts[:3]]
@@ -329,6 +333,8 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
         return "\n".join(_return_lines(p, who)[:MAX_LINES])
     if p.kind == "index":
         return "\n".join(_index_lines(p, who, notes)[:MAX_LINES])
+    if p.kind == "index_return":
+        return "\n".join(_index_return_lines(p, who)[:MAX_LINES])
     return "\n".join(_events_lines(p, who, shown_out)[:MAX_LINES])
 
 
@@ -389,6 +395,13 @@ def _return_lines(p: Packet, who: str):
     divs = [f for f in p.facts if f.label.startswith("Dividend")]
     lines += [f"{f.label}: {f.value}." for f in divs[:3]]
     return lines + _gap_lines(p)
+
+
+def _index_return_lines(p: Packet, who: str):
+    start, end, chg = p.facts
+    return [f"{who} change in level from {human_date(start.date)} to {human_date(end.date)}: {chg.value}.",
+            f"Closing level {start.value} on {human_date(start.date)}; {end.value} on {human_date(end.date)}."
+            ] + _gap_lines(p)
 
 
 def _index_lines(p: Packet, who: str, notes=()):

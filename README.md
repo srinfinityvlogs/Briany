@@ -146,13 +146,17 @@ a new release of a library can never change a deployment on its own.
 
 - One stock or ETF, or one NSE index, per question. No comparisons, intraday prices, bulk-deal or market-wide questions,
   result figures, or US markets yet.
-- Indices: only the day's close, change, open/high/low and NSE's published P/E, P/B and dividend yield, from NSE's
-  end-of-day index file, fetched on demand and cached for a few hours (nothing is stored per day). No index returns over a
-  period, no history, no explanation of why an index moved (the bot says so in one line), and no BSE indices such as the
-  Sensex. The 167 index names come from the 3 Nov 2026 file, so an index NSE adds later is not recognised until
-  `briany/index_names.py` is updated. A missing or odd file is reported as "could not be fetched", never as another day's
-  figures. NSE answers HTTP 200 with an HTML error page for a day without a file (seen on 10 Nov 2026), so the file's
-  content is checked, not the status code.
+- Indices (NSE only): the day's close, change, open/high/low and NSE's published P/E, P/B and dividend yield, and the change
+  in level over 1w, 1m, 3m, 6m, 1y or ytd. All of it comes from NSE's end-of-day index file, fetched on demand and cached for
+  a few hours (nothing is stored per day); the bot never explains why an index moved (it says so in one line) and does not
+  cover BSE indices such as the Sensex. A return reads two files (the start day is the last stored trading day on or before
+  the target, within 7 days, as for stocks) and is refused when either file is missing, when the index did not exist at the
+  start (about a quarter of the 169 indices are newer than Dec 2025), for India VIX and Nifty50 Dividend Points (a
+  percentage change is meaningless there), or when a row's figures disagree. It is the change in the index level, without
+  dividends unless the index is itself a total-return index. The 169 index names come from the 20 Nov 2026 file, so an index
+  NSE adds later is not recognised until `briany/index_names.py` is updated. A missing or odd file is reported as "could not
+  be fetched", never as another day's figures. For a day without a file NSE has answered both HTTP 404 and HTTP 200 with an
+  HTML error page, so the file's content is checked, not the status code.
 - Stocks are called by NSE's full company name everywhere. ETFs and SME stocks keep the short, truncated name from the
   price file (for example `NIP IND ETF GOLD BEES`): on 20 Nov 2026 NSE's ETF list had no proper-name column and its SME
   list held a single row. Run `name-samples` again to see whether that has changed.

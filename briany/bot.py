@@ -22,7 +22,7 @@ HELP = ("I answer questions about one NSE-listed stock or ETF at a time:\n"
         "- Why it moved: 'why is Tata Steel up today?'\n"
         "- Price return: 'TCS 6 month return' (1 week, 1 month, 3 months, 6 months, 1 year or year to date)\n"
         "- Filings and dates: 'any announcements from Infosys?'\n"
-        "- Index close: 'Nifty 50 close today' or 'Bank Nifty on 3 Nov' (NSE indices, one day's level)\n"
+        "- Index: 'Nifty 50 close today', 'Bank Nifty on 3 Nov' or 'Nifty IT 3 month return' (NSE indices)\n"
         "Prices are NSE end-of-day closes, not live quotes. Information only, not investment advice.")
 UNSUPPORTED = {
     "comparison": "I can't compare stocks yet. Ask about one stock at a time, for example 'why is TCS up today?'.",
@@ -34,8 +34,6 @@ UNSUPPORTED = {
                    "'Nifty 50 close today'.",
     "index_not_covered": "I only have NSE indices (for example Nifty 50, Nifty Bank, Nifty IT, India VIX). BSE indices "
                          "such as the Sensex are not covered.",
-    "index_period": "For an index I can give the closing level on a day, not its returns or history over a period yet. "
-                    "Try 'Nifty 50 close on 3 Nov'.",
     "period": "I can give 1 week, 1 month, 3 months, 6 months, 1 year or year-to-date returns.",
     "company_not_found": "I couldn't tell which company you mean. Please give the company name or NSE symbol.",
     "other": "I can answer questions about one NSE-listed stock: why it moved, its return over a period, or its "

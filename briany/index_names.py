@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """NSE index names, as published in NSE's end-of-day index file (ind_close_all_DDMMYYYY.csv).
 
-The list is the 167 names in the 3 Nov 2026 file (checked against the 30 Oct 2026 file: same names). NSE adds and drops
+The list is the 169 names in the 20 Nov 2026 file (the 3 Nov file had 167; Nifty 1000 and Nifty1000 Equal Weight were added
+after it, so the list goes stale within weeks). Older files have fewer rows (143 in Nov 2025), so a name can be absent for a
+start date. NSE adds and drops
 indices over time, so a name missing here is simply not recognised (the bot then says it cannot find it); a name listed
 here that is absent from a day's file is reported as 'not in the file', never guessed. ALIASES maps what people type to
 one of these names. Pure data, no network."""
@@ -177,6 +179,8 @@ INDEX_NAMES = (
     'Nifty BHARAT Bond Index - April 2033',
     'Nifty 1D Rate Index',
     'Nifty50 USD',
+    'Nifty1000 Equal Weight',
+    'Nifty 1000',
 )
 
 # What people type -> a name above. Keys go through index_key(). Only unambiguous nicknames belong here: "nifty midcap"
