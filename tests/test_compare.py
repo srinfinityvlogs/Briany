@@ -114,7 +114,7 @@ def test_a_stock_against_an_index_names_both_sources_and_both_kinds_of_figure():
 def test_a_side_that_cannot_be_given_blocks_the_comparison_and_the_other_side_is_still_shown():
     p = asm().compare_returns(["Nifty Capital Goods", "nifty"], "1y")       # Capital Goods did not exist on 20 Nov 2025
     assert (p.kind, p.status) == ("compare", "refused")
-    assert p.gaps[0].code == "index_not_in_file" and p.gaps[0].text.startswith("Nifty Capital Goods: ")
+    assert p.gaps[0].code == "index_not_in_file" and p.gaps[0].text.startswith("Nifty Capital Goods is not in NSE")
     assert [f.label for f in p.facts] == ["Nifty 50: Change in index level"] and p.facts[0].value == "-1.49%"
     text = fallback_text(p)
     assert text.splitlines()[0] == "I can't compare Nifty Capital Goods vs Nifty 50 for this period."
@@ -125,7 +125,10 @@ def test_both_sides_refused_and_vix_has_no_return_to_compare():
     p = asm().compare_returns(["india vix", "Nifty50 Dividend Points"], "ytd")
     assert p.status == "refused" and [g.code for g in p.gaps] == ["index_not_a_price"] * 2 and p.facts == ()
     q = asm().compare_returns(["india vix", "nifty"], "ytd")
-    assert q.status == "refused" and q.gaps[0].text.startswith("India VIX: ") and len(q.facts) == 1
+    assert q.status == "refused" and q.gaps[0].text.startswith("India VIX is not a price-type index") and len(q.facts) == 1
+    assert "India VIX: India VIX" not in fallback_text(q)                         # the name is not said twice
+    r = asm().compare_returns(["Nifty Capital Goods", "nifty"], "1y")
+    assert r.gaps[0].text.startswith("Nifty Capital Goods is not in NSE's index file")
     assert validate_text(fallback_text(q), q) == []
 
 

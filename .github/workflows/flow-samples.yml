@@ -1,0 +1,29 @@
+name: flow-samples
+
+on:
+  workflow_dispatch:
+    inputs:
+      end:
+        description: "Last trading day to ask for (YYYY-MM-DD)"
+        required: true
+        default: "2026-11-20"
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Capture the candidate FII/DII and deal sources
+        env:
+          IN_END: ${{ github.event.inputs.end }}
+        run: python -m briany.flow_samples --end "$IN_END"
+      - name: Save samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-samples
+          path: samples/flows/

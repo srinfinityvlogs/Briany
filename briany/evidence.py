@@ -402,7 +402,7 @@ today'), not a stock-style move, return or filings list.", "missing"),))
             gaps, seen = [], set()
             for n, side in bad:
                 for g in side.gaps:
-                    gaps.append(Gap(g.code, f"{n}: {g.text}", g.level))
+                    gaps.append(Gap(g.code, g.text if g.text.startswith(side.name) else f"{n}: {g.text}", g.level))
             good = [(n, side) for n, side in zip(names, sides) if side.status == "ok"]
             facts = tuple(Fact(f"{n}: {side.facts[2].label}", side.facts[2].value, side.facts[2].raw, side.facts[2].source,
                                side.facts[2].date) for n, side in good)
