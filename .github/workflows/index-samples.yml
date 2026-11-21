@@ -6,7 +6,7 @@ on:
       day:
         description: "Trading day(s) YYYY-MM-DD, comma separated for several"
         required: true
-        default: "2026-11-03,2026-10-30,2026-11-10"
+        default: "2026-11-20,2026-11-13,2026-10-20,2026-08-20,2026-05-20,2025-12-31,2025-11-20"
 
 jobs:
   capture:

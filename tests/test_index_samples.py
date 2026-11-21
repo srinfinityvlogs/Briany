@@ -81,3 +81,19 @@ def test_several_days_one_run_api_once_and_a_holiday_is_reported(tmp_path):
     assert (tmp_path / "2026-11-03" / "index_close_csv.csv").exists()
     assert not (tmp_path / "2026-11-10" / "index_close_csv.csv").exists()
     assert (tmp_path / "summary.txt").read_text().strip() == summary
+
+
+def test_the_one_line_per_day_table_uses_the_production_parser(tmp_path):
+    from pathlib import Path
+    real = (Path(__file__).parent / "fixtures" / "indices" / "ind_close_all_03112026.csv").read_text(encoding="utf-8")
+    page = "<!DOCTYPE html><html><title>Service Temporarily Unavailable</title></html>"
+
+    def fetch(url, timeout=30):
+        text = real if url.endswith("03112026.csv") else page if url.endswith("10112026.csv") else None
+        return ({"status": 200, "seconds": 0.1, "bytes": len(text), "text": text} if text
+                else {"status": 404, "seconds": 0.1, "error": "HTTPError"})
+    summary = run_days(["2026-11-03", "2026-11-10", "2026-11-11"], str(tmp_path), fetch=fetch, pause=0)
+    table = summary.split("===== one line per day =====")[1]
+    assert "2026-11-03: HTTP 200" in table and "valid file, 167 rows | Nifty 50 23,810.85 | Nifty Bank 55,540.05 | India VIX 15.72" in table
+    assert "2026-11-10: HTTP 200" in table and "NOT a valid index file: the index file is not a CSV" in table
+    assert "2026-11-11: HTTP 404" in table and "no file saved" in table

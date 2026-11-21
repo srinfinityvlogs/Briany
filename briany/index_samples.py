@@ -71,6 +71,23 @@ def split_days(value: str) -> list:
     return days
 
 
+def verdict(day: str, out_dir) -> str:
+    """What the production parser makes of the saved file for `day`: 'valid file, N rows, closes' or why it is not one."""
+    from briany.indexfile import IndexFileError, find_row, parse_index_csv
+    path = Path(out_dir) / day / "index_close_csv.csv"
+    if not path.exists():
+        return "no file saved (the request failed)"
+    try:
+        rows = parse_index_csv(path.read_text(encoding="utf-8", errors="replace"), day)
+    except IndexFileError as e:
+        return f"NOT a valid index file: {e}"
+    closes = []
+    for name in ("Nifty 50", "Nifty Bank", "India VIX"):
+        r = find_row(rows, name)
+        closes.append(f"{name} {r.close:,.2f}" if r and r.close is not None else f"{name} missing")
+    return f"valid file, {len(rows)} rows | " + " | ".join(closes)
+
+
 def run_days(days, out_dir: str = "samples/indices", fetch=fetch_text, pause: float = 1.5) -> str:
     """Check several days in one run. Each day goes to its own sub-folder (samples/indices/<day>/) with its own summary;
     the live API is fetched only once (with the first day), and a final table lists status, rows and key indices per day."""
@@ -81,9 +98,7 @@ def run_days(days, out_dir: str = "samples/indices", fetch=fetch_text, pause: fl
         text = run(day, str(out / day), fetch=fetch, pause=pause, with_api=(i == 0))
         blocks.append(f"##### {day}\n{text}")
         head = text.splitlines()[0] if text else ""
-        found = [ln for ln in text.splitlines() if "key indices found:" in ln]
-        table.append(f"{day}: {head.split(': ', 1)[-1] if head else 'no result'}"
-                     + (f" | {found[0].strip()}" if found else ""))
+        table.append(f"{day}: {head.split(': ', 1)[-1] if head else 'no result'} -> {verdict(day, out)}")
     summary = "\n\n".join(blocks) + "\n\n===== one line per day =====\n" + "\n".join(table)
     (out / "summary.txt").write_text(summary + "\n", encoding="utf-8")
     return summary
