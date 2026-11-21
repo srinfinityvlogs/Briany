@@ -1,0 +1,39 @@
+name: ingest-flows
+
+on:
+  schedule:
+    - cron: "0 14 * * 1-5"       # 19:30 IST Mon-Fri
+    - cron: "0 16 * * 1-5"       # 21:30 IST Mon-Fri: in case NSE published late
+    - cron: "0 22 * * 1-5"       # 03:30 IST Tue-Sat: safety net (GitHub may start scheduled runs hours late)
+  workflow_dispatch:
+    inputs:
+      check:
+        description: "Type yes for a read-only report on what is stored (instead of ingesting)"
+        required: false
+        default: "no"
+
+concurrency:
+  group: ingest-flows
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: Store the daily FII/DII and deal snapshots
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          IN_CHECK: ${{ github.event.inputs.check }}
+          REDIS_MAX_MEMORY_MB: "30"
+        run: |
+          if [ "$IN_CHECK" = "yes" ]; then
+            python -m briany.flows_ingest --check
+          else
+            python -m briany.flows_ingest
+          fi

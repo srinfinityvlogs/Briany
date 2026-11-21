@@ -102,6 +102,7 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | Workflow | Purpose |
 |---|---|
 | `ingest-prices` | Scheduled daily load of end-of-day files and corporate actions; also backfill and read-only checks |
+| `ingest-flows` | Scheduled evenings (19:30, 21:30, 03:30 IST): store the day's FII/DII flows and bulk, block and short-selling deals in Redis (`flz:*`), about 3 KB a day. NSE gives the latest day only, so a day not stored is lost. Run with `check = yes` for a read-only report |
 | `ask-bot` | Ask the full bot a question on real data and read the result in the log |
 | `assemble-evidence` | Print the verified packet (before any model) for one question (modes: why, return, events, index) |
 | `route-test` | Check how the question router behaves on a built-in set of questions |
@@ -110,6 +111,7 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | `capture-scenarios` | Record real scenarios for the regression tests (see below) |
 | `name-samples` | Capture NSE's name lists and measure how many instruments each one names |
 | `draft-check` | Ask each model to write the summary for real packets and show what the validator rejects and why |
+| `flow-samples` | Capture the candidate FII/DII and deal sources (used once to choose the storage design) |
 | `index-samples` | Capture NSE's index end-of-day file for one or more days (comma separated), to check older dates and holidays |
 | `pin-dependencies` | Resolve exact versions of the runtime packages for Vercel (see Updating dependencies) |
 | `nse-samples`, `news-samples` | Capture real feed samples to verify the parsers |

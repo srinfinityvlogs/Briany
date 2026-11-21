@@ -24,6 +24,8 @@ NAMES_KEY = "pxz:names"
 ACTIONS_KEY = "pxz:actions"
 ACTIONS_META_KEY = "pxz:actions:meta"
 DAY_PREFIX = "pxz:"
+FLOW_DAYS_KEY = "flz:days"        # fully stored FII/DII and deal records, member = date, score = yyyymmdd
+FLOW_PREFIX = "flz:"
 LEGACY_PATTERN = "px:*"
 
 
@@ -105,6 +107,7 @@ class MemoryStore:
         self.actions_meta = None
         self.instruments = (None, [])
         self.names = (None, {})
+        self.flows: dict[str, str] = {}              # day -> packed record, same packing as Redis
 
     def set_instruments(self, day, instruments):
         # same packing as Redis, so both stores behave identically
@@ -178,6 +181,36 @@ class MemoryStore:
 
     def earliest_day(self):
         return min(self.days) if self.days else None
+
+    # --- FII/DII and deal records (one per day) ---
+    def put_flow(self, day, record):
+        self.flows[day] = pack_flow(record)
+
+    def get_flow(self, day):
+        blob = self.flows.get(day)
+        return unpack_flow(blob) if blob else None
+
+    def flow_days(self):
+        return sorted(self.flows)
+
+    def flow_bytes(self, day):
+        return len(self.flows.get(day, ""))
+
+    def prune_flows(self, cutoff, max_days=40):
+        old = sorted(d for d in self.flows if d < cutoff)[:max_days]
+        for d in old:
+            del self.flows[d]
+        return old
+
+
+def pack_flow(record: dict) -> str:
+    """One day's FII/DII and deals as zlib + base64 of compact JSON (a real 20 Nov 2026 day: about 14 KB raw JSON)."""
+    raw = json.dumps(record, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    return base64.b64encode(zlib.compress(raw.encode("utf-8"), 9)).decode("ascii")
+
+
+def unpack_flow(blob: str) -> dict:
+    return json.loads(zlib.decompress(base64.b64decode(blob)).decode("utf-8"))
 
 
 def pack_day(rows) -> str:
@@ -335,3 +368,31 @@ class RedisStore:
     def earliest_day(self):
         res = self.r.zrange(DAYS_KEY, 0, 0)
         return res[0] if res else None
+
+    # --- FII/DII and deal records (one per day) ---
+    def put_flow(self, day, record):
+        pipe = self.r.pipeline(transaction=False)
+        pipe.set(f"{FLOW_PREFIX}{day}", pack_flow(record))
+        pipe.zadd(FLOW_DAYS_KEY, {day: _score(day)})      # last: a half-written day is never listed
+        pipe.execute()
+
+    def get_flow(self, day):
+        blob = self.r.get(f"{FLOW_PREFIX}{day}")
+        return unpack_flow(blob) if blob else None
+
+    def flow_days(self):
+        return list(self.r.zrange(FLOW_DAYS_KEY, 0, -1))
+
+    def flow_bytes(self, day):
+        return len(self.r.get(f"{FLOW_PREFIX}{day}") or "")
+
+    def prune_flows(self, cutoff, max_days=40):
+        old = self.r.zrangebyscore(FLOW_DAYS_KEY, "-inf", f"({_score(cutoff)}", start=0, num=max_days)
+        if not old:
+            return []
+        pipe = self.r.pipeline(transaction=False)
+        pipe.zrem(FLOW_DAYS_KEY, *old)                    # the index entry goes first
+        pipe.delete(*[f"{FLOW_PREFIX}{d}" for d in old])
+        pipe.execute()
+        return list(old)
+
