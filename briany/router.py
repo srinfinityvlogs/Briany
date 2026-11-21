@@ -14,8 +14,8 @@ from briany.llm import LlmError
 from briany.symbols import find_index
 
 PERIODS = ("1w", "1m", "3m", "6m", "1y", "ytd")
-UNSUPPORTED_REASONS = ("comparison", "advice", "prediction", "market_data", "index_not_covered", "period",
-                       "company_not_found", "other")
+UNSUPPORTED_REASONS = ("comparison", "compare_period", "advice", "prediction", "market_data", "index_not_covered",
+                       "period", "company_not_found", "other")
 MAX_QUESTION = 300
 
 TOOLS = [
@@ -27,11 +27,21 @@ TOOLS = [
          "date": {"type": "string", "description": "YYYY-MM-DD of the move if the user named a day; omit for the latest"}},
          "required": ["query"]}},
     {"name": "period_return",
-     "description": "Price return of a stock over a period (1 week, 1 month, 3 months, 6 months, 1 year, year to date).",
+     "description": "Price return of a stock, or change in level of an NSE index, over a period (1 week, 1 month, "
+                    "3 months, 6 months, 1 year, year to date).",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "company name or NSE symbol exactly as the user wrote it"},
          "period": {"type": "string", "enum": list(PERIODS), "description": "1w, 1m, 3m, 6m, 1y or ytd"}},
          "required": ["query", "period"]}},
+    {"name": "compare_returns",
+     "description": "Compare TWO stocks, ETFs or NSE indices over the same period (1w, 1m, 3m, 6m, 1y, ytd). Use for "
+                    "'compare TCS and Infosys over 1 year', 'tcs vs infy ytd', 'nifty bank vs nifty it 6 months'. Needs both "
+                    "names and a period.",
+     "parameters": {"type": "object", "properties": {
+         "query_a": {"type": "string", "description": "first company or index exactly as the user wrote it"},
+         "query_b": {"type": "string", "description": "second company or index exactly as the user wrote it"},
+         "period": {"type": "string", "enum": list(PERIODS), "description": "1w, 1m, 3m, 6m, 1y or ytd"}},
+         "required": ["query_a", "query_b", "period"]}},
     {"name": "events",
      "description": "Recent exchange filings, board meetings, upcoming ex-dates and the next results date for a stock. "
                     "Use for 'when are results', 'any announcements', 'latest filings', 'dividend date'.",
@@ -48,8 +58,9 @@ TOOLS = [
          "required": ["query"]}},
     {"name": "unsupported",
      "description": "Use when the question is NOT about one listed stock's move, return or filings, or an NSE index's "
-                    "close: comparing stocks, buy/sell advice, price predictions, market-wide data (FII/DII, bulk deals), "
-                    "BSE indices such as the Sensex (index_not_covered), or anything else.",
+                    "close: comparing more than two things, comparing without a period (compare_period), buy/sell advice, "
+                    "price predictions, market-wide data (FII/DII, bulk deals), BSE indices such as the Sensex "
+                    "(index_not_covered), or anything else.",
      "parameters": {"type": "object", "properties": {
          "reason": {"type": "string", "enum": list(UNSUPPORTED_REASONS), "description": "why it is unsupported"}},
          "required": ["reason"]}},
@@ -63,7 +74,8 @@ Rules:
 2. query: copy the company name or symbol as the user wrote it. Do not guess or expand it.
 3. date: only if the user named a day. Today is {today}. Resolve 'yesterday' and dates without a year against it.
 4. period_return needs a period from the allowed list; anything else (for example '2 years') is unsupported.
-5. Comparing two stocks, buy/sell advice, price predictions and market-wide data are unsupported.
+5. Comparing two stocks or indices over a period uses compare_returns. Comparing more than two (comparison), comparing
+   with no period (compare_period), buy/sell advice, price predictions and market-wide data are unsupported.
    An NSE index's close on a day uses index_close; the Sensex or another BSE index is unsupported
    (index_not_covered). An index's return over a period uses period_return with the index name.
 6. If the question names no company ('why did it fall?', 'and last month?', 'what about it?') and a previous
@@ -121,6 +133,17 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
             if raw != today:                 # "today" means the latest close; keeps the stale-data check active
                 out["date"] = raw
         return Route(tool, out, source)
+    if name == "compare_returns":
+        qa, qb = (str(args.get(k) or "").strip() for k in ("query_a", "query_b"))
+        for q in (qa, qb):
+            if not q or len(q) > 80:
+                raise RouteError("each query must be 1-80 characters")
+        if qa.lower() == qb.lower():
+            raise RouteError("the two names are the same")
+        period = str(args.get("period") or "").strip().lower()
+        if period not in PERIODS:
+            raise RouteError(f"unknown period {period!r}")
+        return Route("compare_returns", {"queries": [qa, qb], "period": period}, source)
     if name == "unsupported":
         reason = str(args.get("reason") or "other").strip().lower()
         return Route("unsupported", {"reason": reason if reason in UNSUPPORTED_REASONS else "other"}, source)
@@ -268,7 +291,19 @@ def rule_route(question: str, resolver, today: str, context: Context | None = No
         return Route("unsupported", {"reason": "advice"}, "rules")
     if PREDICT.search(q) and not re.search(r"\bwhy\b", q, re.I):
         return Route("unsupported", {"reason": "prediction"}, "rules")
-    if len(symbols) + len({i.symbol for _t, i in indices}) >= 2 or COMPARE.search(q):
+    mentions = sorted([(q.lower().find(t.lower()), t, s) for t, s in companies] +
+                      [(q.lower().find(t.lower()), t, i.symbol) for t, i in indices])
+    distinct = {s for _p, _t, s in mentions}
+    if len(distinct) == 2:
+        period, found = parse_period(q)
+        first, second = [t for _p, t, _s in mentions][:2]
+        if found and not period:
+            return Route("unsupported", {"reason": "period"}, "rules")
+        if period:
+            return Route("compare_returns", {"queries": [first, second], "period": period}, "rules")
+        return Route("unsupported", {"reason": "compare_period" if COMPARE.search(q) or RETURN.search(q) else "comparison"},
+                     "rules")
+    if len(distinct) > 2 or COMPARE.search(q):
         return Route("unsupported", {"reason": "comparison"}, "rules")
     if BSE_INDEX.search(q) and not symbols:
         return Route("unsupported", {"reason": "index_not_covered"}, "rules")
@@ -348,10 +383,10 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
             if second.tool in ("why_moved", "period_return", "events", "index_close") or (
                     second.tool == "unsupported" and second.args.get("reason") == "index_not_covered"):
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
-        if r.tool == "unsupported" and r.args.get("reason") == "market_data":      # the model sees indices as market data
+        if r.tool == "unsupported" and r.args.get("reason") in ("market_data", "comparison"):   # sees indices as market data
             second = rule_route(q, resolver, today, context)
-            if second.tool in ("index_close", "period_return") or (
-                    second.tool == "unsupported" and second.args.get("reason") == "index_not_covered"):
+            if second.tool in ("index_close", "period_return", "compare_returns") or (
+                    second.tool == "unsupported" and second.args.get("reason") in ("index_not_covered", "compare_period")):
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
         fixed = _fix_index_route(Route(r.tool, r.args, f"llm:{provider}"), today)
         return Routed(fixed, tuple(attempts), False)

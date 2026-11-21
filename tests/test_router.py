@@ -85,8 +85,15 @@ RULE_CASES = [
     ("reliance 2 year return", "unsupported", {"reason": "period"}),
     ("when are reliance results due", "events", {"query": "reliance"}),
     ("any announcements from angel one", "events", {"query": "angel one"}),
-    ("compare tcs and infosys", "unsupported", {"reason": "comparison"}),
-    ("tcs vs infy", "unsupported", {"reason": "comparison"}),
+    ("compare tcs and infosys", "unsupported", {"reason": "compare_period"}),
+    ("compare tcs and infosys over 1 year", "compare_returns", {"queries": ["tcs", "infosys"], "period": "1y"}),
+    ("tcs vs infy ytd", "compare_returns", {"queries": ["tcs", "infy"], "period": "ytd"}),
+    ("nifty bank vs tcs 6 months", "compare_returns", {"queries": ["nifty bank", "tcs"], "period": "6m"}),
+    ("how has infosys done against tcs over the last month", "compare_returns", {"queries": ["infosys", "tcs"], "period": "1m"}),
+    ("compare tcs and infosys over 2 years", "unsupported", {"reason": "period"}),
+    ("compare tcs, infosys and reliance 1 year", "unsupported", {"reason": "comparison"}),
+    ("compare tcs", "unsupported", {"reason": "comparison"}),
+    ("tcs vs infy", "unsupported", {"reason": "compare_period"}),
     ("should I buy reliance", "unsupported", {"reason": "advice"}),
     ("will reliance go up tomorrow", "unsupported", {"reason": "prediction"}),
     ("what did FII do today", "unsupported", {"reason": "market_data"}),
@@ -102,7 +109,8 @@ RULE_CASES = [
     ("india vix", "index_close", {"query": "india vix"}),
     ("sensex today", "unsupported", {"reason": "index_not_covered"}),
     ("bse 500 close", "unsupported", {"reason": "index_not_covered"}),
-    ("nifty vs bank nifty", "unsupported", {"reason": "comparison"}),
+    ("nifty vs bank nifty", "unsupported", {"reason": "compare_period"}),
+    ("nifty and bank nifty 1 year", "compare_returns", {"queries": ["nifty", "bank nifty"], "period": "1y"}),
     ("nifty and tcs", "unsupported", {"reason": "comparison"}),
     ("will nifty rise tomorrow", "unsupported", {"reason": "prediction"}),
     ("what is the index today", "unsupported", {"reason": "market_data"}),
@@ -186,10 +194,13 @@ def test_rules_override_a_wrong_company_not_found_but_never_a_real_refusal():
     other = P("groq", ToolCall("unsupported", {"reason": "other"}))
     assert route_question("how has infosys done over the last year", Chain([other]), RESOLVER, TODAY
                           ).route.args == {"query": "infosys", "period": "1y"}
-    for reason, q in (("advice", "should I buy reliance"), ("comparison", "compare tcs and infosys"),
+    for reason, q in (("advice", "should I buy reliance"), ("comparison", "compare tcs, infosys and reliance"),
                       ("prediction", "will reliance rise tomorrow"), ("market_data", "what are FIIs doing")):
         kept = route_question(q, Chain([P("groq", ToolCall("unsupported", {"reason": reason}))]), RESOLVER, TODAY)
         assert kept.route.tool == "unsupported" and kept.route.source == "llm:groq" and kept.route.args == {"reason": reason}
+    over = route_question("compare tcs and infosys over 1 year",
+                          Chain([P("groq", ToolCall("unsupported", {"reason": "comparison"}))]), RESOLVER, TODAY)
+    assert over.route.tool == "compare_returns" and over.route.source == "rules:override"     # a model that says 'unsupported'
     weather = route_question("tell me about the weather in Mumbai",
                              Chain([P("groq", ToolCall("unsupported", {"reason": "other"}))]), RESOLVER, TODAY)
     assert weather.route.source == "llm:groq"                       # rules also find no company: the model's answer stands

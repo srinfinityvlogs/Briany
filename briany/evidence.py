@@ -71,7 +71,7 @@ class Gap:
 
 @dataclass(frozen=True)
 class Packet:
-    kind: str                     # move | return | events | index | index_return | clarify
+    kind: str                     # move | return | events | index | index_return | compare | clarify
     status: str                   # ok | refused | clarify
     symbol: str = ""
     name: str = ""
@@ -376,6 +376,60 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                                 "is given.", "limit"), facts=facts)
         code = "insufficient_history" if r.status == "insufficient_history" else "no_price_data"
         return self._refuse("return", inst, Gap(code, r.note or "Not enough price data.", "missing"))
+
+    # ---------------------------------------------------------------- compare two returns
+    def compare_returns(self, queries, label=None) -> Packet:
+        """Two stocks, ETFs or NSE indices over the same period: each side is its own period_return packet (so every refusal
+        rule of a single return applies unchanged), both read the same stored trading days, and the difference in percentage
+        points is computed here. If either side cannot be given, nothing is ranked."""
+        qs = [str(q).strip() for q in list(queries)[:2]]
+        if len(qs) != 2 or not all(qs):
+            return Packet("compare", "refused", name="", as_of=self._stamp(), gaps=(Gap(
+                "compare_needs_two", "I need two names to compare, for example TCS and Infosys.", "missing"),))
+        sides = [self.period_return(q, label=label) for q in qs]
+        for side in sides:
+            if side.status == "clarify":                       # an ambiguous name: ask, do not guess which one was meant
+                return side
+        names = [side.name if side.kind == "index_return" else (f"{side.name} ({side.symbol})" if side.symbol else side.name)
+                 for side in sides]
+        title = " vs ".join(names)
+        if sides[0].symbol and sides[0].symbol == sides[1].symbol:
+            return Packet("compare", "refused", "", title, self._stamp(), gaps=(Gap(
+                "compare_same", f"Both names point to {names[0]}; give two different companies or indices.",
+                "missing"),))
+        bad = [(n, side) for n, side in zip(names, sides) if side.status != "ok"]
+        if bad:
+            gaps, seen = [], set()
+            for n, side in bad:
+                for g in side.gaps:
+                    gaps.append(Gap(g.code, f"{n}: {g.text}", g.level))
+            good = [(n, side) for n, side in zip(names, sides) if side.status == "ok"]
+            facts = tuple(Fact(f"{n}: {side.facts[2].label}", side.facts[2].value, side.facts[2].raw, side.facts[2].source,
+                               side.facts[2].date) for n, side in good)
+            return Packet("compare", "refused", "", title, self._stamp(), facts, gaps=tuple(gaps))
+        a, b = sides
+        if (a.facts[0].date, a.facts[1].date) != (b.facts[0].date, b.facts[1].date):
+            return Packet("compare", "refused", "", title, self._stamp(), gaps=(Gap(
+                "compare_dates_differ", "The two returns do not cover the same dates, so they are not compared.",
+                "missing"),))
+        diff = round(a.facts[2].raw - b.facts[2].raw, 2)
+        facts = [Fact(f"{n}: {side.facts[2].label}", side.facts[2].value, side.facts[2].raw, side.facts[2].source,
+                      side.facts[2].date) for n, side in zip(names, sides)]
+        facts.append(Fact("Difference in percentage points", f"{abs(diff):.2f}", diff, a.facts[2].source, a.facts[2].date))
+        context = tuple(Fact(f"{n}: {f.label}", f.value, f.raw, f.source, f.date)
+                        for n, side in zip(names, sides) for f in side.facts[:2])
+        kinds = {side.kind for side in sides}
+        basis = ("Both are price returns; dividends are not included." if kinds == {"return"} else
+                 "Both are changes in index level; dividends are not included unless the index itself is a total-return "
+                 "index." if kinds == {"index_return"} else
+                 "Stock figures are price returns and index figures are changes in level; dividends are not included "
+                 "unless the index itself is a total-return index.")
+        gaps = [Gap("compare_basis", basis, "info")]
+        for side in sides:
+            for g in side.gaps:
+                if g.code not in ("price_return_only", "index_level_change") and all(g.code != x.code for x in gaps):
+                    gaps.append(g)
+        return Packet("compare", "ok", "", title, self._stamp(), tuple(facts), context, (), tuple(gaps), True)
 
     # ---------------------------------------------------------------- index return
     def index_return(self, inst, label=None, start=None, end=None) -> Packet:

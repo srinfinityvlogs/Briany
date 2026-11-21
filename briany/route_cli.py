@@ -36,7 +36,10 @@ def build_suite(today: str):
         ("reliance 2 year return", {"tool": U, "reason": "period"}, None),
         ("when are Reliance's next results", {"tool": E, "query_has": "reliance"}, None),
         ("any announcements from Angel One recently", {"tool": E, "query_has": "angel"}, None),
-        ("compare TCS and Infosys", {"tool": U, "reason": "comparison"}, None),
+        ("compare TCS and Infosys", {"tool": U, "reason": "compare_period"}, None),
+        ("compare TCS and Infosys over 1 year", {"tool": "compare_returns", "queries_have": ["tcs", "infosys"], "period": "1y"}, None),
+        ("nifty bank vs nifty it ytd", {"tool": "compare_returns", "queries_have": ["nifty bank", "nifty it"], "period": "ytd"}, None),
+        ("compare tcs infosys and reliance over a year", {"tool": U, "reason": "comparison"}, None),
         ("which is better, tata steel or tata power", {"tool": U, "reason": "comparison"}, None),
         ("should I buy Reliance now", {"tool": U, "reason": "advice"}, None),
         ("will Reliance hit 1500 next week", {"tool": U, "reason": "prediction"}, None),
@@ -65,6 +68,10 @@ def matches(expected: dict, route) -> bool:
     a = route.args
     if "query_has" in expected and expected["query_has"] not in str(a.get("query", "")).lower():
         return False
+    if "queries_have" in expected:                       # compare_returns: each wanted word appears in the matching query
+        queries = [str(x).lower() for x in a.get("queries", [])]
+        if len(queries) != 2 or any(w not in qy for w, qy in zip(expected["queries_have"], queries)):
+            return False
     return all(a.get(k) == expected[k] for k in ("period", "date", "reason") if k in expected)
 
 

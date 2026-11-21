@@ -13,7 +13,7 @@ VALID = {t["name"] for t in TOOLS}
 
 def test_suite_is_well_formed_and_dates_follow_today():
     suite = build_suite(TODAY)
-    assert len(suite) == 31 and len({q for q, _e, _c in suite}) == 31
+    assert len(suite) == 34 and len({q for q, _e, _c in suite}) == 34
     assert all(e["tool"] in VALID for _q, e, _c in suite)
     dates = {q: e["date"] for q, e, _c in suite if "date" in e}
     assert dates["what happened to TCS yesterday"] == "2026-11-09"
@@ -38,4 +38,4 @@ def test_rule_router_is_a_usable_fallback_on_the_real_suite():
     suite = build_suite(TODAY)
     passed = [q for q, e, c in suite if matches(e, rule_route(q, RESOLVER, TODAY, c))]
     failed = [q for q, e, c in suite if q not in passed]
-    assert len(passed) >= 31, f"rule router passes only {len(passed)}/{len(suite)}; failing: {failed}"
+    assert len(passed) >= 34, f"rule router passes only {len(passed)}/{len(suite)}; failing: {failed}"

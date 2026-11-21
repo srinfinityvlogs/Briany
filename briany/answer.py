@@ -211,7 +211,7 @@ def validate_text(text: str, p: Packet) -> list:
         for need in ([p.facts[0]] if p.facts else []) + ([chg] if chg else []):
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
-    if p.kind == "index_return" and p.status == "ok":
+    if p.kind in ("index_return", "compare") and p.status == "ok":
         for need in p.facts:
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
@@ -322,9 +322,10 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
     """Built from the packet alone. Passes validate_text() by construction (tested for every packet type)."""
     if p.status == "clarify":
         return p.gaps[0].text if p.gaps else "Which company do you mean? Please give the company name or NSE symbol."
-    who = p.name if p.kind in ("index", "index_return") else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
+    who = p.name if p.kind in ("index", "index_return", "compare") else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
     if p.status == "refused":
-        lines = [f"I can't give a reliable figure for {who}."] + _gap_lines(p)
+        head = f"I can't compare {who} for this period." if p.kind == "compare" else f"I can't give a reliable figure for {who}."
+        lines = [head] + _gap_lines(p)
         lines += [f"- {f.label}: {f.value}" + (f" ({human_date(f.date)})" if f.date else "") for f in p.facts[:3]]
         return "\n".join(lines[:MAX_LINES])
     if p.kind == "move":
@@ -335,6 +336,8 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
         return "\n".join(_index_lines(p, who, notes)[:MAX_LINES])
     if p.kind == "index_return":
         return "\n".join(_index_return_lines(p, who)[:MAX_LINES])
+    if p.kind == "compare":
+        return "\n".join(_compare_lines(p)[:MAX_LINES])
     return "\n".join(_events_lines(p, who, shown_out)[:MAX_LINES])
 
 
@@ -394,6 +397,26 @@ def _return_lines(p: Packet, who: str):
              f"Official close {start.value} on {human_date(start.date)}; {end.value} on {human_date(end.date)}."]
     divs = [f for f in p.facts if f.label.startswith("Dividend")]
     lines += [f"{f.label}: {f.value}." for f in divs[:3]]
+    return lines + _gap_lines(p)
+
+
+def _side(fact) -> str:
+    """'Tata Consultancy Services Limited (TCS): Price return' -> the name in front of the label."""
+    return fact.label.rsplit(": ", 1)[0]
+
+
+def _compare_lines(p: Packet):
+    a, b, diff = p.facts
+    sa, ea = p.context[0], p.context[1]
+    sb, eb = p.context[2], p.context[3]
+    na, nb = _side(a), _side(b)
+    lines = [f"From {human_date(sa.date)} to {human_date(ea.date)}: {na} {a.value}; {nb} {b.value}."]
+    if diff.raw == 0:
+        lines.append(f"The difference is {diff.value} percentage points.")
+    else:
+        lines.append(f"{na if diff.raw > 0 else nb} was higher by {diff.value} percentage points.")
+    lines.append(f"{na}: {sa.value} on {human_date(sa.date)}; {ea.value} on {human_date(ea.date)}.")
+    lines.append(f"{nb}: {sb.value} on {human_date(sb.date)}; {eb.value} on {human_date(eb.date)}.")
     return lines + _gap_lines(p)
 
 
@@ -474,8 +497,10 @@ def build_footer(p: Packet, html_links: bool = False, factors=None) -> str:
         else:
             lines.append(f"Link: {label} (long link not shown in plain text)")
     prices = any(f.source.startswith(PRICE_SOURCE) or f.source == INDEX_SOURCE for f in list(p.facts) + list(p.context))
-    index = any(f.source == INDEX_SOURCE for f in p.facts)
-    price_note = ("Index levels are NSE official end-of-day values, not live." if index
+    index = any(f.source == INDEX_SOURCE for f in list(p.facts) + list(p.context))
+    stock = any(f.source.startswith(PRICE_SOURCE) for f in list(p.facts) + list(p.context))
+    price_note = ("Prices and index levels are NSE official end-of-day values, not live." if index and stock
+                  else "Index levels are NSE official end-of-day values, not live." if index
                   else "Prices are NSE official end-of-day closes, not live quotes.")
     try:
         stamp = datetime.fromisoformat(p.as_of).astimezone(IST)

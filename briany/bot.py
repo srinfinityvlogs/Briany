@@ -23,9 +23,13 @@ HELP = ("I answer questions about one NSE-listed stock or ETF at a time:\n"
         "- Price return: 'TCS 6 month return' (1 week, 1 month, 3 months, 6 months, 1 year or year to date)\n"
         "- Filings and dates: 'any announcements from Infosys?'\n"
         "- Index: 'Nifty 50 close today', 'Bank Nifty on 3 Nov' or 'Nifty IT 3 month return' (NSE indices)\n"
+        "- Compare two: 'compare TCS and Infosys over 1 year' (stocks or indices, one period)\n"
         "Prices are NSE end-of-day closes, not live quotes. Information only, not investment advice.")
 UNSUPPORTED = {
-    "comparison": "I can't compare stocks yet. Ask about one stock at a time, for example 'why is TCS up today?'.",
+    "comparison": "I can compare two stocks, ETFs or NSE indices over a period, for example 'compare TCS and Infosys over "
+                  "1 year'. I can't compare more than two, or compare other things such as a single day's moves.",
+    "compare_period": "Tell me the period to compare over: 1 week, 1 month, 3 months, 6 months, 1 year or year-to-date. "
+                      "For example: 'compare TCS and Infosys over 1 year'.",
     "advice": "I don't give buy, sell or hold advice. I can show what happened to a stock and what was announced, "
               "for example 'why is Reliance up today?'.",
     "prediction": "I can't predict prices. I can show what happened to a stock and what was announced.",
@@ -77,6 +81,8 @@ class Bot:
             return self.asm.why_moved(a["query"], on=a.get("date"))
         if route.tool == "index_close":
             return self.asm.index_close(a["query"], on=a.get("date"))
+        if route.tool == "compare_returns":
+            return self.asm.compare_returns(a["queries"], label=a["period"])
         if route.tool == "period_return":
             return self.asm.period_return(a["query"], label=a["period"])
         return self.asm.events(a["query"])

@@ -144,8 +144,16 @@ a new release of a library can never change a deployment on its own.
 
 ## Known limits
 
-- One stock or ETF, or one NSE index, per question. No comparisons, intraday prices, bulk-deal or market-wide questions,
+- One stock, ETF or NSE index per question, except a return comparison of exactly two. No intraday prices, bulk-deal or market-wide questions,
   result figures, or US markets yet.
+- Comparisons: two stocks, ETFs or NSE indices (mixed is fine) over one period (1w, 1m, 3m, 6m, 1y, ytd), for example
+  "compare TCS and Infosys over 1 year" or "nifty bank vs nifty it ytd". Each side is its own return, with every refusal rule of
+  a single return, and both use the same start and end days. The bot states each change, which is higher and by how many
+  percentage points (computed in code), and the closes behind them. If either side cannot be given (a split or bonus in the
+  period, an index that did not exist at the start, a missing file, VIX) nothing is ranked: the reason is stated and the
+  other side's figure is shown on its own. No comparison of a single day's moves, of more than two, or without a period (the
+  bot asks for one). An ambiguous name gets the usual "Did you mean" question. A comparison does not change what "and
+  yesterday?" refers to.
 - Indices (NSE only): the day's close, change, open/high/low and NSE's published P/E, P/B and dividend yield, and the change
   in level over 1w, 1m, 3m, 6m, 1y or ytd. All of it comes from NSE's end-of-day index file, fetched on demand and cached for
   a few hours (nothing is stored per day); the bot never explains why an index moved (it says so in one line) and does not
