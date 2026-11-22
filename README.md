@@ -146,8 +146,16 @@ a new release of a library can never change a deployment on its own.
 
 ## Known limits
 
-- One stock, ETF or NSE index per question, except a return comparison of exactly two. No intraday prices, bulk-deal or market-wide questions,
+- One stock, ETF or NSE index per question, except a return comparison of exactly two. No intraday prices or other market-wide questions,
   result figures, or US markets yet.
+- FII/DII and deals (from `ingest-flows`, stored daily, see the workflow table): "FII DII today", "what did FIIs do on 20 Nov",
+  "FII flows this week / last month", "bulk deals in TCS", "block deals today", "short selling today". Flows are NSE's
+  market-wide FII/FPI and DII buying, selling and net in Rs crore; a period is added up only when every trading day of it is
+  stored, otherwise the stored days are listed and no total is given. History exists only from the day storage began (NSE
+  publishes the latest day only), so "last month" fills in over a month. Deals come from the stored days: one stock's deals
+  (the latest six, with the count of all matches), or a market-wide day with the counts and the largest by value (quantity
+  times price, computed here). Short-selling rows are dated a day behind bulk and block, and the same trade can appear in both
+  the bulk and block lists; the answer says so. No FII/DII figure for one stock, and no comparison of flows or deals.
 - Comparisons: two stocks, ETFs or NSE indices (mixed is fine) over one period (1w, 1m, 3m, 6m, 1y, ytd), for example
   "compare TCS and Infosys over 1 year" or "nifty bank vs nifty it ytd". Each side is its own return, with every refusal rule of
   a single return, and both use the same start and end days. The bot states each change, which is higher and by how many

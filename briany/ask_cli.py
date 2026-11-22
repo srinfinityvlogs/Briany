@@ -30,6 +30,8 @@ SUITE = [
     ("how is the nifty doing", None),
     ("bank nifty on 3 nov", None),
     ("sensex today", None),
+    ("fii dii today", None),
+    ("bulk deals today", None),
 ]
 
 

@@ -211,7 +211,7 @@ def validate_text(text: str, p: Packet) -> list:
         for need in ([p.facts[0]] if p.facts else []) + ([chg] if chg else []):
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
-    if p.kind in ("index_return", "compare") and p.status == "ok":
+    if p.kind in ("index_return", "compare", "flows", "flows_period", "deals", "deals_market") and p.status == "ok":
         for need in p.facts:
             if need.raw is not None and abs(Decimal(str(need.raw))) not in seen and _dec(need.value) not in seen:
                 problems.append(f"missing key figure: {need.label}")
@@ -322,9 +322,13 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
     """Built from the packet alone. Passes validate_text() by construction (tested for every packet type)."""
     if p.status == "clarify":
         return p.gaps[0].text if p.gaps else "Which company do you mean? Please give the company name or NSE symbol."
-    who = p.name if p.kind in ("index", "index_return", "compare") else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
+    who = p.name if p.kind in ("index", "index_return", "compare", "flows", "flows_period", "deals_market") else (f"{p.name} ({p.symbol})" if p.symbol else "this company")
+    if p.status == "refused" and p.kind == "flows_period" and p.facts:
+        return "\n".join(_flows_partial_lines(p)[:MAX_LINES])
     if p.status == "refused":
-        head = f"I can't compare {who} for this period." if p.kind == "compare" else f"I can't give a reliable figure for {who}."
+        head = (f"I can't compare {who} for this period." if p.kind == "compare" else
+                "I can't answer that from the stored data." if p.kind in ("flows", "flows_period", "deals", "deals_market")
+                else f"I can't give a reliable figure for {who}.")
         lines = [head] + _gap_lines(p)
         lines += [f"- {f.label}: {f.value}" + (f" ({human_date(f.date)})" if f.date else "") for f in p.facts[:3]]
         return "\n".join(lines[:MAX_LINES])
@@ -338,6 +342,12 @@ def fallback_text(p: Packet, notes=(), shown_out=None) -> str:
         return "\n".join(_index_return_lines(p, who)[:MAX_LINES])
     if p.kind == "compare":
         return "\n".join(_compare_lines(p)[:MAX_LINES])
+    if p.kind in ("flows", "flows_period"):
+        return "\n".join(_flows_lines(p)[:MAX_LINES])
+    if p.kind == "deals":
+        return "\n".join(_deals_lines(p, who)[:MAX_LINES])
+    if p.kind == "deals_market":
+        return "\n".join(_deals_market_lines(p)[:MAX_LINES])
     return "\n".join(_events_lines(p, who, shown_out)[:MAX_LINES])
 
 
@@ -397,6 +407,53 @@ def _return_lines(p: Packet, who: str):
              f"Official close {start.value} on {human_date(start.date)}; {end.value} on {human_date(end.date)}."]
     divs = [f for f in p.facts if f.label.startswith("Dividend")]
     lines += [f"{f.label}: {f.value}." for f in divs[:3]]
+    return lines + _gap_lines(p)
+
+
+def _flow_word(net: float) -> str:
+    return "net buying" if net > 0 else "net selling" if net < 0 else "flat"
+
+
+def _flows_lines(p: Packet):
+    """FII/FPI and DII for one day or added up over a period: bought, sold and net in Rs crore, as NSE reports them."""
+    by = {f.label: f for f in p.facts}
+    if p.kind == "flows_period":
+        head = p.facts[0]
+        lines = [f"FII/DII added up over {head.value}."]
+    else:
+        lines = []
+    for cat in ("FII/FPI", "DII"):
+        b, s_, n = by[f"{cat}: bought"], by[f"{cat}: sold"], by[f"{cat}: net"]
+        when = "" if p.kind == "flows_period" else f" on {human_date(b.date)}"
+        lines.append(f"{cat}{when}: bought {b.value}, sold {s_.value}, net {n.value} ({_flow_word(n.raw)}).")
+    return lines + _gap_lines(p)
+
+
+def _flows_partial_lines(p: Packet):
+    """A period with missing days: no total; the stored days are listed so the answer is still of use."""
+    lines = _gap_lines(p)
+    by_day = {}
+    for f in p.facts:
+        by_day.setdefault(f.date, {})[f.label.split(":")[0]] = f
+    for day in sorted(by_day):
+        a, b = by_day[day].get("FII/FPI"), by_day[day].get("DII")
+        if a and b:
+            lines.append(f"{human_date(day)}: FII/FPI net {a.value} ({_flow_word(a.raw)}); DII net {b.value} ({_flow_word(b.raw)}).")
+    return lines
+
+
+def _deals_lines(p: Packet, who: str):
+    head = p.facts[0]
+    if any(g.code == "no_deals_found" for g in p.gaps):
+        lines = [f"No matching bulk, block or short-selling records for {who} on the stored days ({head.value})."]
+        return lines + [g for g in _gap_lines(p) if "No matching deals were found" not in g]
+    lines = [f"{who}: {head.value}."]
+    lines += [f"{f.label}: {f.value}." for f in p.facts[1:]]
+    return lines + _gap_lines(p)
+
+
+def _deals_market_lines(p: Packet):
+    lines = [f"{f.label}: {f.value}." for f in p.facts]
     return lines + _gap_lines(p)
 
 

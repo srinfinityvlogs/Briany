@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "why, return, events or index"
+        description: "why, return, events, index, flows or deals"
         required: true
         default: "why"
       query:
-        description: "Company name or NSE symbol, e.g. reliance (index mode: an index name, e.g. nifty bank)"
+        description: "Company name or NSE symbol, e.g. reliance (index mode: an index name; flows mode: day or 1w/1m/3m/6m/1y/ytd; deals mode: all or a company)"
         required: true
         default: "reliance"
       date:
@@ -16,7 +16,7 @@ on:
         required: false
         default: ""
       period:
-        description: "For 'return': 1w, 1m, 3m, 6m, 1y or ytd"
+        description: "For 'return': 1w, 1m, 3m, 6m, 1y or ytd; for 'deals': bulk, block or short (empty = all)"
         required: false
         default: "1m"
 

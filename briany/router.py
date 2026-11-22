@@ -15,7 +15,7 @@ from briany.symbols import find_index
 
 PERIODS = ("1w", "1m", "3m", "6m", "1y", "ytd")
 UNSUPPORTED_REASONS = ("comparison", "compare_period", "advice", "prediction", "market_data", "index_not_covered",
-                       "period", "company_not_found", "other")
+                       "flows_stock", "period", "company_not_found", "other")
 MAX_QUESTION = 300
 
 TOOLS = [
@@ -42,6 +42,20 @@ TOOLS = [
          "query_b": {"type": "string", "description": "second company or index exactly as the user wrote it"},
          "period": {"type": "string", "enum": list(PERIODS), "description": "1w, 1m, 3m, 6m, 1y or ytd"}},
          "required": ["query_a", "query_b", "period"]}},
+    {"name": "fii_dii",
+     "description": "Market-wide FII/FPI and DII buying, selling and net (Rs crore) for the latest stored day, a named "
+                    "day, or added up over a period (1w, 1m, 3m, 6m, 1y, ytd). Use for 'FII DII today', 'what did FIIs do "
+                    "yesterday', 'FII flows last month'. Not for what FIIs did in one stock.",
+     "parameters": {"type": "object", "properties": {
+         "date": {"type": "string", "description": "YYYY-MM-DD if the user named a day; omit for the latest"},
+         "period": {"type": "string", "enum": list(PERIODS), "description": "set for a period; omit for one day"}}}},
+    {"name": "large_deals",
+     "description": "Bulk, block and short-selling deals from stored daily records: for one stock, or the market-wide "
+                    "counts and largest deals of the latest stored day. Use for 'bulk deals in TCS', 'block deals today'.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "company exactly as the user wrote it; omit for market-wide"},
+         "kind": {"type": "string", "enum": ["bulk", "block", "short"], "description": "omit for all kinds"},
+         "date": {"type": "string", "description": "YYYY-MM-DD if the user named a day; omit for the stored days"}}}},
     {"name": "events",
      "description": "Recent exchange filings, board meetings, upcoming ex-dates and the next results date for a stock. "
                     "Use for 'when are results', 'any announcements', 'latest filings', 'dividend date'.",
@@ -59,8 +73,8 @@ TOOLS = [
     {"name": "unsupported",
      "description": "Use when the question is NOT about one listed stock's move, return or filings, or an NSE index's "
                     "close: comparing more than two things, comparing without a period (compare_period), buy/sell advice, "
-                    "price predictions, market-wide data (FII/DII, bulk deals), BSE indices such as the Sensex "
-                    "(index_not_covered), or anything else.",
+                    "price predictions, other market-wide data, FII/DII activity in one stock (flows_stock), BSE indices "
+                    "such as the Sensex (index_not_covered), or anything else.",
      "parameters": {"type": "object", "properties": {
          "reason": {"type": "string", "enum": list(UNSUPPORTED_REASONS), "description": "why it is unsupported"}},
          "required": ["reason"]}},
@@ -75,7 +89,9 @@ Rules:
 3. date: only if the user named a day. Today is {today}. Resolve 'yesterday' and dates without a year against it.
 4. period_return needs a period from the allowed list; anything else (for example '2 years') is unsupported.
 5. Comparing two stocks or indices over a period uses compare_returns. Comparing more than two (comparison), comparing
-   with no period (compare_period), buy/sell advice, price predictions and market-wide data are unsupported.
+   with no period (compare_period), buy/sell advice, price predictions and other market-wide data are unsupported.
+   Market-wide FII/DII flows use fii_dii; bulk, block or short-selling deals use large_deals; FII/DII activity in one
+   stock is unsupported (flows_stock).
    An NSE index's close on a day uses index_close; the Sensex or another BSE index is unsupported
    (index_not_covered). An index's return over a period uses period_return with the index name.
 6. If the question names no company ('why did it fall?', 'and last month?', 'what about it?') and a previous
@@ -101,6 +117,21 @@ class RouteError(ValueError):
 
 
 # ------------------------------------------------------------------ validation
+def _date_arg(raw: str, today: str) -> dict:
+    """{'date': iso} for a valid past or present date, {} for none; anything else is a RouteError."""
+    if not raw:
+        return {}
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        raise RouteError("date must be YYYY-MM-DD")
+    try:
+        d = Date.fromisoformat(raw)
+    except ValueError:
+        raise RouteError("not a real date") from None
+    if d > Date.fromisoformat(today):
+        raise RouteError("date is in the future")
+    return {"date": raw}
+
+
 def validate_route(name, args, today: str, source: str = "") -> Route:
     """Check a tool call from the model. Returns a cleaned Route or raises RouteError."""
     args = args if isinstance(args, dict) else {}
@@ -133,6 +164,29 @@ def validate_route(name, args, today: str, source: str = "") -> Route:
             if raw != today:                 # "today" means the latest close; keeps the stale-data check active
                 out["date"] = raw
         return Route(tool, out, source)
+    if name == "fii_dii":
+        period = str(args.get("period") or "").strip().lower()
+        raw = str(args.get("date") or "").strip()
+        if period:
+            if period not in PERIODS:
+                raise RouteError(f"unknown period {period!r}")
+            return Route("fii_dii", {"period": period}, source)
+        return Route("fii_dii", _date_arg(raw, today), source)
+    if name == "large_deals":
+        out = {}
+        query = str(args.get("query") or "").strip()
+        tail = re.search(r"\(([A-Za-z0-9&.-]{2,20})\)\s*$", query)
+        if tail:
+            query = tail.group(1)
+        if len(query) > 80:
+            raise RouteError("query must be at most 80 characters")
+        if query:
+            out["query"] = query
+        kind = str(args.get("kind") or "").strip().lower()
+        if kind in ("bulk", "block", "short"):
+            out["kind"] = kind
+        out.update(_date_arg(str(args.get("date") or "").strip(), today))
+        return Route("large_deals", out, source)
     if name == "compare_returns":
         qa, qb = (str(args.get(k) or "").strip() for k in ("query_a", "query_b"))
         for q in (qa, qb):
@@ -166,8 +220,12 @@ announce announcement announcements filing filings dividend due upcoming next do
 SMALL = re.compile(r"^\s*/?(hi|hello|hey|help|start|thanks|thank you|namaste)\b|"
                    r"^\s*(what can you do|what do you do|who are you|how (do|does) (this|it|you) work|can you help)", re.I)
 ADVICE = re.compile(r"\b(should i|shall i|buy|sell|hold|invest|investment|target price|good stock|worth buying|safe to)\b", re.I)
+STRONG_ADVICE = re.compile(r"\b(should i|shall i|worth buying|safe to|good stock|target price|invest(ing|ment)?)\b", re.I)
 PREDICT = re.compile(r"\b(will|would it|going to|predict|prediction|forecast|expect|expected to|tomorrow|next week|next month)\b", re.I)
-MARKET = re.compile(r"\b(fiis?|diis?|fpis?|bulk deals?|block deals?|index|indices|market wide)\b", re.I)
+MARKET = re.compile(r"\b(index|indices|market wide)\b", re.I)
+FLOWS = re.compile(r"\b(fiis?|diis?|fpis?|fii[/ -]dii|institutional (investors?|flows?|buying|selling)|"
+                   r"foreign (portfolio|institutional) investors?|domestic institutional)\b", re.I)
+DEALS = re.compile(r"\b(bulk|block|large)\b[^.?!]{0,25}\bdeals?\b|\bshort[- ]?sell(ing|ers?)?\b", re.I)
 BSE_INDEX = re.compile(r"\b(sensex|bankex|bse\s*(sensex|\d+|smallcap|midcap|largecap|allcap))\b", re.I)
 COMPARE = re.compile(r"\b(compare|versus|vs\.?|better than|against)\b", re.I)
 RETURN = re.compile(r"\b(returns?|gains?|gained|performance|performed|how much has|since|grown|growth)\b", re.I)
@@ -192,7 +250,7 @@ def parse_period(q: str):
         if unit.startswith("m"):
             return ({1: "1m", 3: "3m", 6: "6m", 12: "1y"}.get(n), True)
         return ("1y", True) if n == 1 else (None, True)
-    for words, period in ((r"\b(last|past) week\b|\bweekly\b", "1w"), (r"\b(last|past) month\b|\bmonthly\b", "1m"),
+    for words, period in ((r"\b(last|past|this) week\b|\bweekly\b", "1w"), (r"\b(last|past|this) month\b|\bmonthly\b", "1m"),
                           (r"\b(last|past) year\b|\bannual\b", "1y")):
         if re.search(words, t):
             return period, True
@@ -287,10 +345,36 @@ def rule_route(question: str, resolver, today: str, context: Context | None = No
     indices = find_indices(q)
     companies = find_companies(_without(q, [t for t, _i in indices]), resolver)    # an index name is not a company
     symbols = {s for _t, s in companies}
-    if ADVICE.search(q):
-        return Route("unsupported", {"reason": "advice"}, "rules")
+    if ADVICE.search(q) and not ((FLOWS.search(q) or DEALS.search(q)) and not STRONG_ADVICE.search(q)):
+        return Route("unsupported", {"reason": "advice"}, "rules")      # 'did FIIs buy or sell today' is a flows question
     if PREDICT.search(q) and not re.search(r"\bwhy\b", q, re.I):
         return Route("unsupported", {"reason": "prediction"}, "rules")
+    flows, deals = FLOWS.search(q), DEALS.search(q)
+    if (flows or deals) and len(symbols) + len({i.symbol for _t, i in indices}) <= 1 and not (symbols and WHY.search(q)):
+        if flows:
+            if symbols:
+                return Route("unsupported", {"reason": "flows_stock"}, "rules")
+            period, found = parse_period(q)
+            if found and not period:
+                return Route("unsupported", {"reason": "period"}, "rules")
+            if period:
+                return Route("fii_dii", {"period": period}, "rules")
+            d = parse_date(q, t)
+            return Route("fii_dii", {"date": d} if d and Date.fromisoformat(d) <= t else {}, "rules")
+        args = {}
+        if symbols:
+            args["query"] = companies[0][0]
+        words = {w for w in ("bulk", "block") if re.search(rf"\b{w}\b", q, re.I)}
+        if re.search(r"\bshort", q, re.I):
+            args["kind"] = "short"
+        elif len(words) == 1:
+            args["kind"] = words.pop()
+        d = parse_date(q, t)
+        if d and Date.fromisoformat(d) <= t:
+            args["date"] = d
+        return Route("large_deals", args, "rules")
+    if (flows or deals) and len(symbols) + len({i.symbol for _t, i in indices}) >= 2:
+        return Route("unsupported", {"reason": "comparison"}, "rules")          # flows and deals are not compared
     mentions = sorted([(q.lower().find(t.lower()), t, s) for t, s in companies] +
                       [(q.lower().find(t.lower()), t, i.symbol) for t, i in indices])
     distinct = {s for _p, _t, s in mentions}
@@ -385,8 +469,9 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
         if r.tool == "unsupported" and r.args.get("reason") in ("market_data", "comparison"):   # sees indices as market data
             second = rule_route(q, resolver, today, context)
-            if second.tool in ("index_close", "period_return", "compare_returns") or (
-                    second.tool == "unsupported" and second.args.get("reason") in ("index_not_covered", "compare_period")):
+            if second.tool in ("index_close", "period_return", "compare_returns", "fii_dii", "large_deals") or (
+                    second.tool == "unsupported" and second.args.get("reason") in (
+                        "index_not_covered", "compare_period", "flows_stock")):
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
         fixed = _fix_index_route(Route(r.tool, r.args, f"llm:{provider}"), today)
         return Routed(fixed, tuple(attempts), False)

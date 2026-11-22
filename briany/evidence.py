@@ -35,6 +35,12 @@ STALE_AFTER_DAYS = 4          # tunable once the publication time of NSE's file 
 MIN_BREADTH_STOCKS = 200
 PRICE_SOURCE = "NSE end-of-day file"
 INDEX_SOURCE = "NSE end-of-day index file"
+FLOW_SOURCE = "NSE FII/DII data"
+DEAL_SOURCE = "NSE large-deals data"
+DEAL_KINDS = ("bulk", "block", "short")
+TOP_N = 5                          # rows listed in a market-wide deals answer (2 each when two kinds are shown)
+STOCK_DEAL_ROWS = 6                # deals listed for one stock; the count of all matches is stated
+SCAN_DAYS = 30                     # stored days searched for one stock
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 # gaps that mean "a source could not be checked": they forbid saying "no clear evidence found"
@@ -71,7 +77,7 @@ class Gap:
 
 @dataclass(frozen=True)
 class Packet:
-    kind: str                     # move | return | events | index | index_return | compare | clarify
+    kind: str                     # move | return | events | index | index_return | compare | flows | flows_period | deals | deals_market | clarify
     status: str                   # ok | refused | clarify
     symbol: str = ""
     name: str = ""
@@ -98,6 +104,34 @@ def money(x: float) -> str:
 
 def pct_text(x: float) -> str:
     return f"{x:+.2f}%"
+
+
+def crore_text(x: float, signed: bool = False) -> str:
+    """Rs crore as NSE reports FII/DII flows; a sign goes in front of the rupee symbol."""
+    sign = ("+" if x > 0 else "-" if x < 0 else "") if signed else ""
+    return f"{sign}₹{abs(x):,.2f} crore"
+
+
+def _flow_problem(rows: dict) -> str:
+    """Why a day's FII/DII rows cannot be right, or ''. Both categories must be there and buy - sell must equal net."""
+    for cat in ("FII/FPI", "DII"):
+        if cat not in rows:
+            return f"{cat} is missing"
+        _c, buy, sell, net = rows[cat]
+        if abs(buy - sell - net) > 0.02:
+            return f"{cat} bought minus sold is not the net"
+    return ""
+
+
+def _deal_text(kind: str, row, value=None) -> str:
+    """One deal as plain text; the value in Rs crore (quantity x price) is computed here and labelled as such."""
+    if kind == "short":
+        return f"{row[0]}: {row[1]:,} shares in the short-selling report"
+    symbol, client, side, qty, price, remarks = row
+    text = f"{symbol}: {side} {qty:,} shares" + (f" at {money(price)}" if price is not None else "")
+    if value is not None:
+        text += f" (about ₹{value:,.2f} crore, quantity times price)"
+    return text + (f", client {client}" if client else "")
 
 
 def level_text(x: float) -> str:
@@ -376,6 +410,214 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                                 "is given.", "limit"), facts=facts)
         code = "insufficient_history" if r.status == "insufficient_history" else "no_price_data"
         return self._refuse("return", inst, Gap(code, r.note or "Not enough price data.", "missing"))
+
+    # ---------------------------------------------------------------- FII/DII flows (stored daily snapshots)
+    def _flow_record(self, day):
+        try:
+            return self.store.get_flow(day)
+        except AttributeError:
+            return None
+
+    def fii_dii(self, on=None, label=None) -> Packet:
+        """FII/FPI and DII buying, selling and net (Rs crore) for one stored day, or added up over a period when EVERY trading
+        day of the period is stored. NSE gives the latest day only, so history exists only from the day storage began; a
+        period with missing days is not totalled, the days that are stored are listed instead."""
+        def refuse(*gaps, facts=(), kind="flows"):
+            return Packet(kind, "refused", "", "FII/DII", self._stamp(), tuple(facts), gaps=tuple(gaps))
+        try:
+            days = list(self.store.flow_days())
+        except AttributeError:
+            days = []
+        if not days:
+            return refuse(Gap("no_flow_data", "No FII/DII records are stored yet.", "missing"))
+        if label:
+            return self._fii_dii_period(label, days, refuse)
+        day = on
+        if on:
+            try:
+                Date.fromisoformat(on)
+            except (TypeError, ValueError):
+                return refuse(Gap("bad_date", "I could not read that date.", "missing"))
+        else:
+            with_fii = [d for d in days if (self._flow_record(d) or {}).get("fii")]
+            if not with_fii:
+                return refuse(Gap("no_flow_data", "No FII/DII records are stored yet.", "missing"))
+            day = with_fii[-1]
+        rec = self._flow_record(day) if day in days else None
+        if not rec or not rec.get("fii"):
+            return refuse(Gap("no_flow_record", f"No FII/DII record is stored for {human_date(day)}; records start on "
+                              f"{human_date(days[0])}, and NSE only publishes the latest day, so earlier days cannot be added.",
+                              "missing"))
+        rows = {r[0]: r for r in rec["fii"]}
+        bad = _flow_problem(rows)
+        if bad:
+            return refuse(Gap("flows_inconsistent", f"NSE's FII/DII figures for {human_date(day)} do not agree with each "
+                              f"other ({bad}), so none are given.", "missing"))
+        facts = []
+        for cat in ("FII/FPI", "DII"):
+            _c, buy, sell, net = rows[cat]
+            facts += [Fact(f"{cat}: bought", crore_text(buy), buy, FLOW_SOURCE, day),
+                      Fact(f"{cat}: sold", crore_text(sell), sell, FLOW_SOURCE, day),
+                      Fact(f"{cat}: net", crore_text(net, signed=True), net, FLOW_SOURCE, day)]
+        gaps = []
+        latest_price = self.store.latest_day()
+        if on is None and latest_price and day < latest_price:
+            gaps.append(Gap("flows_not_yet", f"FII/DII data for {human_date(latest_price)} is not stored yet; this is the "
+                            "latest day stored.", "limit"))
+        return Packet("flows", "ok", "", "FII/DII", self._stamp(), tuple(facts), (), (), tuple(gaps), True)
+
+    def _fii_dii_period(self, label, days, refuse) -> Packet:
+        end = self.store.latest_day()
+        target = period_start(end, label) if end else None
+        if not end:
+            return refuse(Gap("no_price_data", "No price data is stored, so I do not know the trading days.", "missing"),
+                          kind="flows_period")
+        if not target:
+            return refuse(Gap("bad_period", "Unknown period; use 1w, 1m, 3m, 6m, 1y or ytd.", "missing"), kind="flows_period")
+        start_day = self.store.day_on_or_before(target)
+        if start_day is None or (Date.fromisoformat(target) - Date.fromisoformat(start_day)).days > MAX_GAP_DAYS:
+            return refuse(Gap("insufficient_history", f"Stored history starts {self.store.earliest_day()}; need data near "
+                              f"{target}.", "missing"), kind="flows_period")
+        window = [d for d in self.store.all_days() if target < d <= end]      # the trading days after the start, up to the end
+        have = {}
+        for d in window:
+            rec = self._flow_record(d) if d in days else None
+            if rec and rec.get("fii"):
+                have[d] = {r[0]: r for r in rec["fii"]}
+        for d, rows in have.items():
+            bad = _flow_problem(rows)
+            if bad:
+                return refuse(Gap("flows_inconsistent", f"NSE's FII/DII figures for {human_date(d)} do not agree with each "
+                                  f"other ({bad}), so no total is given.", "missing"), kind="flows_period")
+        span = f"{human_date(window[0])} to {human_date(window[-1])}" if window else ""
+        if not have:
+            return refuse(Gap("no_flow_record", f"No FII/DII data is stored for {span or 'this period'}; records start on "
+                              f"{human_date(days[0])}.", "missing"), kind="flows_period")
+        if len(have) < len(window):
+            facts = []
+            for d in sorted(have)[-3:]:
+                for cat in ("FII/FPI", "DII"):
+                    net = have[d][cat][3]
+                    facts.append(Fact(f"{cat}: net, {human_date(d)}", crore_text(net, signed=True), net, FLOW_SOURCE, d))
+            return refuse(Gap("flows_partial", f"I have FII/DII data for only {len(have)} of the {len(window)} trading days "
+                              f"from {span}, so I am not giving a total.", "missing"), facts=facts, kind="flows_period")
+        facts = [Fact("Trading days added up", f"{len(window)} trading days, {span}", len(window), FLOW_SOURCE, window[-1])]
+        for cat in ("FII/FPI", "DII"):
+            buy = round(sum(have[d][cat][1] for d in window), 2)
+            sell = round(sum(have[d][cat][2] for d in window), 2)
+            net = round(sum(have[d][cat][3] for d in window), 2)
+            facts += [Fact(f"{cat}: bought", crore_text(buy), buy, FLOW_SOURCE, window[-1]),
+                      Fact(f"{cat}: sold", crore_text(sell), sell, FLOW_SOURCE, window[-1]),
+                      Fact(f"{cat}: net", crore_text(net, signed=True), net, FLOW_SOURCE, window[-1])]
+        gaps = [Gap("flows_added_up", "Totals are the daily NSE figures added up here.", "info")]
+        return Packet("flows_period", "ok", "", "FII/DII", self._stamp(), tuple(facts), (), (), tuple(gaps), True)
+
+    # ---------------------------------------------------------------- bulk, block and short-selling deals
+    def large_deals(self, query=None, kind=None, on=None) -> Packet:
+        """Deals for one stock over the stored days, or the market-wide picture of one stored day (counts and the largest
+        by value). Only stored, count-checked days are used, so 'none found' is said only for days that have data."""
+        kinds = (kind,) if kind in DEAL_KINDS else DEAL_KINDS
+        try:
+            days = list(self.store.flow_days())
+        except AttributeError:
+            days = []
+
+        def refuse(inst, *gaps):
+            return Packet("deals", "refused", inst.symbol if inst else "", inst.name if inst else "Large deals", self._stamp(),
+                          gaps=tuple(gaps))
+        inst = None
+        if query:
+            inst, clar = self._resolve(query)
+            if clar is not None:
+                return clar
+        if not days:
+            return refuse(inst, Gap("no_flow_data", "No bulk, block or short-selling records are stored yet.", "missing"))
+        if on:
+            try:
+                Date.fromisoformat(on)
+            except (TypeError, ValueError):
+                return refuse(inst, Gap("bad_date", "I could not read that date.", "missing"))
+            if on not in days:
+                return refuse(inst, Gap("no_flow_record", f"No deal records are stored for {human_date(on)}; records start on "
+                                        f"{human_date(days[0])}.", "missing"))
+        return self._deals_for_stock(inst, kinds, days, on, refuse) if inst else self._deals_market(kinds, days, on, refuse)
+
+    def _deals_for_stock(self, inst, kinds, days, on, refuse) -> Packet:
+        scan = [on] if on else days[-SCAN_DAYS:]
+        found, searched = [], {}
+        for d in reversed(scan):
+            rec = self._flow_record(d) or {}
+            for k in kinds:
+                if k not in rec:
+                    continue
+                searched.setdefault(d, []).append(k)
+                for row in rec[k]:
+                    if row[0] == inst.symbol:
+                        found.append((d, k, row))
+        if not searched:
+            return refuse(inst, Gap("no_flow_record", "No stored day has the kind of deal asked about.", "missing"))
+        first, last = min(searched), max(searched)
+        gaps = []
+        if any(len(v) < len(kinds) for v in searched.values()) or len(searched) < len(scan):
+            gaps.append(Gap("deals_partial", "Not every stored day has every kind of deal record, so a missing deal is "
+                            "only certain for days that have the data.", "limit"))
+        if not found:
+            facts = (Fact("Days searched", f"{len(searched)} stored day(s), {human_date(first)} to {human_date(last)}",
+                          len(searched), DEAL_SOURCE, last),)
+            return Packet("deals", "ok", inst.symbol, self._name(inst), self._stamp(), facts, (), (),
+                          tuple(gaps + [Gap("no_deals_found", "No matching deals were found.", "info")]), True)
+        shown = found[:STOCK_DEAL_ROWS]
+        facts = [Fact("Matching records", f"{len(found)} in {len(searched)} stored day(s), {human_date(first)} to "
+                      f"{human_date(last)}" + (f"; the latest {len(shown)} are listed" if len(shown) < len(found) else ""),
+                      len(found), DEAL_SOURCE, last)]
+        for d, k, row in shown:
+            facts.append(Fact(f"{k.capitalize()} deal, {human_date(d)}", _deal_text(k, row), row[3] if k != "short" else row[1],
+                              DEAL_SOURCE, d))
+        return Packet("deals", "ok", inst.symbol, self._name(inst), self._stamp(), tuple(facts), (), (), tuple(gaps), True)
+
+    def _deals_market(self, kinds, days, on, refuse) -> Packet:
+        def has(d, k):
+            return k in (self._flow_record(d) or {})
+        picked = {}
+        for k in kinds:
+            cand = [on] if on else [d for d in reversed(days) if has(d, k)][:1]
+            if cand and has(cand[0], k):
+                picked[k] = cand[0]
+        if not picked:
+            return refuse(None, Gap("no_flow_record", "No stored day has that kind of deal record.", "missing"))
+        both = sum(1 for k in picked if k != "short") > 1
+        n_top = 2 if both else TOP_N
+        counts, ranked = [], []
+        for k, d in picked.items():
+            rows = (self._flow_record(d) or {})[k]
+            counts.append(f"{len(rows)} {k}")
+            if k == "short":
+                top = sorted(rows, key=lambda r: -r[1])[:n_top]
+                ranked += [(k, d, r, None) for r in top] if kinds == ("short",) else []
+            else:
+                priced = [r for r in rows if r[4] is not None and r[3] is not None]
+                top = sorted(priced, key=lambda r: -(r[3] * r[4]))[:n_top]
+                ranked += [(k, d, r, round(r[3] * r[4] / 1e7, 2)) for r in top]
+        facts = []
+        for k, d in picked.items():
+            n = len((self._flow_record(d) or {})[k])
+            facts.append(Fact(f"{k.capitalize()} records, {human_date(d)}", f"{n}", n, DEAL_SOURCE, d))
+        for k, d, r, value in ranked:
+            facts.append(Fact(f"Largest {k}, {human_date(d)}", _deal_text(k, r, value), value if value is not None else r[1],
+                              DEAL_SOURCE, d))
+        gaps = []
+        latest_price = self.store.latest_day()
+        if on is None and latest_price and any(d < latest_price for k, d in picked.items() if k != "short"):
+            gaps.append(Gap("flows_not_yet", f"Deal data for {human_date(latest_price)} is not stored yet; this is the latest "
+                            "day stored.", "limit"))
+        if len(picked) < len(kinds):
+            gaps.append(Gap("deals_partial", "Some kinds of deal record are not stored for any day yet.", "limit"))
+        if picked.get("bulk") and picked.get("bulk") == picked.get("block"):
+            rec = self._flow_record(picked["bulk"]) or {}
+            if {tuple(r) for r in rec.get("bulk", [])} & {tuple(r) for r in rec.get("block", [])}:
+                gaps.append(Gap("deals_overlap", "Some trades appear in both the bulk and the block list, so counts and "
+                                "rankings across both can include the same trade twice.", "info"))
+        return Packet("deals_market", "ok", "", "Large deals", self._stamp(), tuple(facts), (), (), tuple(gaps), True)
 
     # ---------------------------------------------------------------- compare two returns
     def compare_returns(self, queries, label=None) -> Packet:

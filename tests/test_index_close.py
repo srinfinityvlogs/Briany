@@ -290,7 +290,7 @@ def test_sensex_and_returns_and_follow_ups_route_in_code():
     assert r("nifty it today").args == {"query": "nifty it"}
     assert r("and on 3 nov?", Context("NIFTY BANK", "Nifty Bank")).args == {"query": "NIFTY BANK", "date": "2026-11-03"}
     assert r("and last month?", Context("NIFTY BANK", "Nifty Bank")).args == {"query": "NIFTY BANK", "period": "1m"}
-    assert r("what are FIIs doing", Context("NIFTY BANK", "Nifty Bank")).args == {"reason": "market_data"}
+    assert r("what are FIIs doing", Context("NIFTY BANK", "Nifty Bank")).tool == "fii_dii"        # not a follow-up on the index
     assert r("tcs today", Context("NIFTY BANK", "Nifty Bank")).tool == "why_moved"
 
 
@@ -310,7 +310,8 @@ def test_a_model_that_sends_an_index_to_a_stock_tool_is_corrected_in_code():
     assert go("period_return", {"query": "nifty", "period": "1m"}).tool == "period_return"     # an index return is offered now
     assert go("events", {"query": "nifty"}).tool == "unsupported"
     assert go("unsupported", {"reason": "market_data"}, "how is the nifty").tool == "index_close"
-    assert go("unsupported", {"reason": "market_data"}, "what are FIIs doing").args == {"reason": "market_data"}
+    assert go("unsupported", {"reason": "market_data"}, "what are FIIs doing").tool == "fii_dii"   # the model said unsupported
+    assert go("unsupported", {"reason": "market_data"}, "what is the market wide delivery").args == {"reason": "market_data"}
 
 
 def test_a_future_date_from_the_model_is_rejected_like_for_stocks():

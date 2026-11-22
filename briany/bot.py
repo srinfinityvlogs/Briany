@@ -23,6 +23,7 @@ HELP = ("I answer questions about one NSE-listed stock or ETF at a time:\n"
         "- Price return: 'TCS 6 month return' (1 week, 1 month, 3 months, 6 months, 1 year or year to date)\n"
         "- Filings and dates: 'any announcements from Infosys?'\n"
         "- Index: 'Nifty 50 close today', 'Bank Nifty on 3 Nov' or 'Nifty IT 3 month return' (NSE indices)\n"
+        "- Flows and deals: 'FII DII today', 'FII flows last month', 'bulk deals in TCS', 'block deals today'\n"
         "- Compare two: 'compare TCS and Infosys over 1 year' (stocks or indices, one period)\n"
         "Prices are NSE end-of-day closes, not live quotes. Information only, not investment advice.")
 UNSUPPORTED = {
@@ -33,9 +34,10 @@ UNSUPPORTED = {
     "advice": "I don't give buy, sell or hold advice. I can show what happened to a stock and what was announced, "
               "for example 'why is Reliance up today?'.",
     "prediction": "I can't predict prices. I can show what happened to a stock and what was announced.",
-    "market_data": "Market-wide data (FII/DII totals, bulk deals) isn't available yet. FII/DII figures do appear in a "
-                   "stock's move answer for the latest day. For an NSE index, ask for its close, for example "
-                   "'Nifty 50 close today'.",
+    "market_data": "I can't give that market-wide figure. I do have the daily FII/DII flows and bulk, block and "
+                   "short-selling deals ('FII DII today', 'bulk deals today') and NSE index closes ('Nifty 50 close today').",
+    "flows_stock": "FII/DII figures are market-wide daily totals; I can't show what FIIs or DIIs did in one stock. "
+                   "Try 'FII DII today'.",
     "index_not_covered": "I only have NSE indices (for example Nifty 50, Nifty Bank, Nifty IT, India VIX). BSE indices "
                          "such as the Sensex are not covered.",
     "period": "I can give 1 week, 1 month, 3 months, 6 months, 1 year or year-to-date returns.",
@@ -81,6 +83,10 @@ class Bot:
             return self.asm.why_moved(a["query"], on=a.get("date"))
         if route.tool == "index_close":
             return self.asm.index_close(a["query"], on=a.get("date"))
+        if route.tool == "fii_dii":
+            return self.asm.fii_dii(on=a.get("date"), label=a.get("period"))
+        if route.tool == "large_deals":
+            return self.asm.large_deals(query=a.get("query"), kind=a.get("kind"), on=a.get("date"))
         if route.tool == "compare_returns":
             return self.asm.compare_returns(a["queries"], label=a["period"])
         if route.tool == "period_return":

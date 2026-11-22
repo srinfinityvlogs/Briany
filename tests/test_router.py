@@ -96,7 +96,26 @@ RULE_CASES = [
     ("tcs vs infy", "unsupported", {"reason": "compare_period"}),
     ("should I buy reliance", "unsupported", {"reason": "advice"}),
     ("will reliance go up tomorrow", "unsupported", {"reason": "prediction"}),
-    ("what did FII do today", "unsupported", {"reason": "market_data"}),
+    ("what did FII do today", "fii_dii", {}),
+    ("fii dii on 5 nov", "fii_dii", {"date": "2026-11-05"}),
+    ("what did fiis do yesterday", "fii_dii", {"date": "2026-11-09"}),
+    ("fii flows this week", "fii_dii", {"period": "1w"}),
+    ("fii dii last month", "fii_dii", {"period": "1m"}),
+    ("fiis net selling past 3 months", "fii_dii", {"period": "3m"}),
+    ("fii flows 2 years", "unsupported", {"reason": "period"}),
+    ("fii activity in tcs", "unsupported", {"reason": "flows_stock"}),
+    ("did fiis buy or sell today", "fii_dii", {}),
+    ("what are the biggest bulk deals to sell", "large_deals", {"kind": "bulk"}),
+    ("should i buy when fiis are selling", "unsupported", {"reason": "advice"}),
+    ("should i buy tcs after the bulk deal", "unsupported", {"reason": "advice"}),
+    ("bulk deals today", "large_deals", {"kind": "bulk"}),
+    ("bulk deals in tcs", "large_deals", {"query": "tcs", "kind": "bulk"}),
+    ("deals in tcs", "why_moved", {"query": "tcs"}),
+    ("any block deals in reliance yesterday", "large_deals", {"query": "reliance", "kind": "block", "date": "2026-11-09"}),
+    ("short selling in infosys", "large_deals", {"query": "infosys", "kind": "short"}),
+    ("bulk and block deals today", "large_deals", {}),
+    ("why did tcs fall, were fiis selling", "why_moved", {"query": "tcs"}),
+    ("compare tcs and infosys bulk deals", "unsupported", {"reason": "comparison"}),
     ("nifty 50 return", "unsupported", {"reason": "period"}),
     ("nifty 50 one year return", "period_return", {"query": "nifty 50", "period": "1y"}),
     ("nifty bank ytd", "period_return", {"query": "nifty bank", "period": "ytd"}),
@@ -179,8 +198,8 @@ def test_when_every_provider_fails_the_rules_answer_the_question():
 
 
 def test_plural_flow_words_and_capability_questions():
-    assert rule_route("what are FIIs doing today", RESOLVER, TODAY).args == {"reason": "market_data"}
-    assert rule_route("how are DIIs positioned", RESOLVER, TODAY).args == {"reason": "market_data"}
+    assert rule_route("what are FIIs doing today", RESOLVER, TODAY).tool == "fii_dii"
+    assert rule_route("how are DIIs positioned", RESOLVER, TODAY).tool == "fii_dii"
     for q in ("what can you do", "Who are you?", "how does this work", "can you help me"):
         assert rule_route(q, RESOLVER, TODAY).tool == "smalltalk", q
     assert rule_route("what can you tell me about reliance results", RESOLVER, TODAY).tool == "events"
@@ -195,7 +214,7 @@ def test_rules_override_a_wrong_company_not_found_but_never_a_real_refusal():
     assert route_question("how has infosys done over the last year", Chain([other]), RESOLVER, TODAY
                           ).route.args == {"query": "infosys", "period": "1y"}
     for reason, q in (("advice", "should I buy reliance"), ("comparison", "compare tcs, infosys and reliance"),
-                      ("prediction", "will reliance rise tomorrow"), ("market_data", "what are FIIs doing")):
+                      ("prediction", "will reliance rise tomorrow"), ("market_data", "what is the market wide delivery")):
         kept = route_question(q, Chain([P("groq", ToolCall("unsupported", {"reason": reason}))]), RESOLVER, TODAY)
         assert kept.route.tool == "unsupported" and kept.route.source == "llm:groq" and kept.route.args == {"reason": reason}
     over = route_question("compare tcs and infosys over 1 year",
