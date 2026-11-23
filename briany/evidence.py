@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date as Date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from briany.marketdata import (JUMP_PCT, MAX_GAP_DAYS, MIN_JUMP_PRICE, daily_move, dividends_in, load_blockers,
+from briany.marketdata import (JUMP_PCT, LISTING_LOOKBACK, MAX_GAP_DAYS, MIN_JUMP_PRICE, daily_move, dividends_in, load_blockers,
                                period_return, period_start)
 from briany.news import first_token_is_unique
 from briany.indexfile import find_row
@@ -286,11 +286,17 @@ today'), not a stock-style move, return or filings list.", "missing"),))
         day = move.date
         prior = self.store.day_on_or_before(_prev_day(day))
         facts = [Fact(f"Official close, {human_date(day)}", money(move.close), move.close, PRICE_SOURCE, day),
-                 Fact("Previous close" + (" (unadjusted)" if move.status == "blocked_by_corporate_action" else ""),
-                      money(move.prev_close), move.prev_close, PRICE_SOURCE, prior or None)]
+                 Fact("Reference price (NSE's previous-close field)" if move.status == "possible_listing" else
+                      "Previous close" + (" (unadjusted)" if move.status == "blocked_by_corporate_action" else ""),
+                      money(move.prev_close), move.prev_close, PRICE_SOURCE, None if move.status == "possible_listing" else prior or None)]
         gaps = self._stale_gap(day) if on is None else []
-        if move.status != "blocked_by_corporate_action":
+        if move.status not in ("blocked_by_corporate_action", "possible_listing"):
             facts.append(Fact("Change from previous close", pct_text(move.pct), move.pct, PRICE_SOURCE, day))
+        if move.status == "possible_listing":
+            gaps.append(Gap("possible_listing", f"{sym} is in none of the price files of the previous {LISTING_LOOKBACK} "
+                            "trading days, so this may be its first trading day (a new listing) or a return after a long "
+                            "gap. NSE's previous-close field is then an issue or reference price, so no change from the "
+                            "previous close is given.", "limit"))
         if move.status == "blocked_by_corporate_action":
             subjects = "; ".join(a.purpose for a in move.actions)
             gaps.append(Gap("corporate_action_on_date", f"A corporate action took effect on this date ({subjects}); "
@@ -357,7 +363,7 @@ today'), not a stock-style move, return or filings list.", "missing"),))
 
         factors.sort(key=lambda f: f.when)
         complete = not any(g.code in CHECK_FAILURES for g in gaps)
-        none_found = complete and not factors and move.status in ("ok", "unverified_large_move")
+        none_found = complete and not factors and move.status in ("ok", "unverified_large_move", "possible_listing")
         if none_found:
             gaps.append(Gap("no_clear_evidence", f"No filing, corporate action, board meeting or relevant news was "
                             f"found between the {human_date(prior) if prior else 'previous'} close and the "

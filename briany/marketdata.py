@@ -19,6 +19,7 @@ JUMP_PCT = 30.0           # one-day change at/above this is 'large'
 MIN_JUMP_PRICE = 1.0      # ignore prior closes below Rs 1: one tick looks like +50% (rights entitlements)
 MAX_GAP_DAYS = 7          # nearest stored day may be at most this far from the target
 PREV_CLOSE_TOLERANCE = 0.005
+LISTING_LOOKBACK = 20     # trading days: a symbol in none of the previous 20 stored days is treated as possibly newly listed
 
 
 class DataError(RuntimeError):
@@ -40,7 +41,7 @@ class CorporateAction:
 
 @dataclass(frozen=True)
 class DailyMove:
-    status: str           # "ok" | "no_data" | "blocked_by_corporate_action" | "unverified_large_move"
+    status: str           # "ok" | "no_data" | "blocked_by_corporate_action" | "possible_listing" | "unverified_large_move"
     symbol: str
     date: str | None = None
     close: float | None = None
@@ -119,6 +120,17 @@ def _pct(new: float, old: float) -> float:
     return round((new - old) / old * 100, 2)
 
 
+def _unseen_recently(store, symbol: str, day: str) -> bool:
+    """True when `symbol` is in none of the LISTING_LOOKBACK stored trading days before `day`: a new listing (whose previous
+    close in NSE's file is the issue price) or a return after a long gap. NSE's file lists only scrips that traded, so one
+    missing day proves nothing (an illiquid stock skips days); with fewer than LISTING_LOOKBACK earlier days stored we
+    cannot tell and say nothing."""
+    earlier = sorted(d for d in store.all_days() if d < day)
+    if len(earlier) < LISTING_LOOKBACK:
+        return False
+    return all(store.get_row(d, symbol) is None for d in reversed(earlier[-LISTING_LOOKBACK:]))
+
+
 def daily_move(store, symbol: str, on: str | None = None, actions=()) -> DailyMove:
     """Move on the latest stored day (or the last stored day on/before `on`).
     NSE's previous close is NOT adjusted for splits/bonuses, so a blocking action whose
@@ -138,6 +150,10 @@ def daily_move(store, symbol: str, on: str | None = None, actions=()) -> DailyMo
         return DailyMove("blocked_by_corporate_action", symbol, day, row.close, row.prev_close,
                          actions=hits,
                          note="NSE's previous close is not adjusted, so the raw change is not a real move")
+    if _unseen_recently(store, symbol, day):
+        return DailyMove("possible_listing", symbol, day, row.close, row.prev_close,
+                         note="the symbol is in none of the previous trading days' files, so NSE's previous-close field "
+                              "may be an issue or reference price rather than an earlier trading close")
     matches = None
     note = ""
     if prior is not None:

@@ -28,6 +28,7 @@ REQUIRED_PHRASES = {
     "no_clear_evidence": "no clear evidence found",
     "corporate_action_on_date": "corporate action",
     "unverified_large_move": "unlisted split",
+    "possible_listing": "first trading day",
     "news_not_covered": "not checked",
     "news_unavailable": "could not be checked",
     "announcements_unavailable": "could not be checked",
@@ -361,8 +362,12 @@ def compose_move(p: Packet, summary_text: str, notes=(), shown_out=None) -> str:
 def _move_head(p: Packet, who: str):
     close, prev, chg = p.facts[0], p.facts[1], main_change(p)
     head = [f"{who} closed at {close.value} on {human_date(close.date)}."]
-    head.append(f"That is {chg.value} from the previous close of {prev.value}." if chg else
-                f"The previous close was {prev.value} (unadjusted), so no percentage change is shown.")
+    if chg:
+        head.append(f"That is {chg.value} from the previous close of {prev.value}.")
+    elif prev.label.startswith("Reference price"):
+        head.append(f"NSE's reference price (its previous-close field) was {prev.value}, so no percentage change is shown.")
+    else:
+        head.append(f"The previous close was {prev.value} (unadjusted), so no percentage change is shown.")
     med = next((f for f in p.context if f.label.startswith("Median change")), None)
     ud = next((f for f in p.context if f.label == "Stocks up / down"), None)
     market = ([f"Market that day: {med.label.lower()} {med.value}" + (f"; stocks up / down {ud.value}." if ud else ".")]

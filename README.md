@@ -148,6 +148,11 @@ a new release of a library can never change a deployment on its own.
 
 - One stock, ETF or NSE index per question, except a return comparison of exactly two. No intraday prices or other market-wide questions,
   result figures, or US markets yet.
+- Listing days: a stock that is in none of the price files of the previous 20 stored trading days is treated as possibly newly
+  listed (or back after a long gap). NSE's previous-close field is then an issue or reference price, so a "why did it move"
+  answer gives the close and that reference price, says it may be its first trading day, and shows no percentage. One missing
+  day does not trigger this (NSE's file lists only scrips that traded, so illiquid stocks skip days), and with fewer than 20
+  earlier days stored nothing is claimed. A corporate action on the day takes precedence.
 - FII/DII and deals (from `ingest-flows`, stored daily, see the workflow table): "FII DII today", "what did FIIs do on 20 Nov",
   "FII flows this week / last month", "bulk deals in TCS", "block deals today", "short selling today". Flows are NSE's
   market-wide FII/FPI and DII buying, selling and net in Rs crore; a period is added up only when every trading day of it is
