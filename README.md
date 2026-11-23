@@ -186,7 +186,15 @@ a new release of a library can never change a deployment on its own.
 - News covers about the last week, so older days say news was not checked. Headlines that say only "Reliance" or "RIL"
   are not matched to Reliance Industries (precision over recall).
 - FII/DII data appears only when the day asked about is the latest stored day.
-- The evidence window assumes a 15:30 close, also on special weekend sessions.
+- Special sessions: no source here gives the hours of a special session (a Muhurat or Budget day, an early close), and none are
+  typed in by hand. A weekend day, or a weekday listed in the `SPECIAL_SESSION_DAYS` environment variable (comma-separated ISO
+  dates, set it in Vercel when NSE announces one), is treated as ambiguous: filings and news published on that calendar day are
+  neither placed before nor after its close and are not listed, for the move on that day and for the next trading day, and the
+  answer names the day ("special trading session"). It never says "no clear evidence" for such a day. A weekday special session
+  that is not in the list is treated as a normal day.
+- Only the opening summary of a "why did it move" answer is model-written (`WRITER_KINDS` in `briany/bot.py`). Every other
+  answer (returns, indices, comparisons, flows, deals) is built by code: the code text is already the finished answer, so a
+  model would only reword it, at the cost of latency, free-tier rate limits and a new way to go wrong.
 - Bond-ETF maturity notices are not stored.
 - NSE's public APIs are unofficial and can change or block requests; the client fails loudly rather than guess.
 

@@ -29,6 +29,7 @@ REQUIRED_PHRASES = {
     "corporate_action_on_date": "corporate action",
     "unverified_large_move": "unlisted split",
     "possible_listing": "first trading day",
+    "special_session": "special trading session",
     "news_not_covered": "not checked",
     "news_unavailable": "could not be checked",
     "announcements_unavailable": "could not be checked",

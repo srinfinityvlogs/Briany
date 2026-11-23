@@ -11,8 +11,9 @@ Rules (decided, not guessed):
  * Missing or stale corporate actions, an unlisted large move, a corporate action in a return window,
    or missing history all REFUSE the number instead of guessing.
 
-Known limit: the window assumes every session closed at 15:30 IST. After a special weekend session
-(Budget day, Muhurat) a filing published during that session may be labelled "after the previous close".
+Special sessions (a weekend Muhurat or Budget day, or a weekday listed in SPECIAL_SESSION_DAYS) have hours of their own that no
+source here gives, so items published on such a calendar day are neither placed before nor after the close and are not listed;
+the answer names the day (see briany/sessions.py). Known limit: a weekday special session NOT in that list is treated as normal.
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from briany.marketdata import (JUMP_PCT, LISTING_LOOKBACK, MAX_GAP_DAYS, MIN_JUM
 from briany.news import first_token_is_unique
 from briany.indexfile import find_row
 from briany.nse import NseError
+from briany.sessions import is_special_session, special_days_from_env
 from briany.symbols import find_index, format_choices, is_entitlement
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -217,6 +219,7 @@ class Assembler:
     def __init__(self, store, nse, news, resolver, now=None, names=None, index=None):
         self.store, self.nse, self.news, self.resolver = store, nse, news, resolver
         self.index = index                                  # IndexClient (NSE end-of-day index file), or None
+        self.special_days = special_days_from_env()         # weekday special sessions (SPECIAL_SESSION_DAYS)
         self.names = dict(names or {})                      # {symbol: full company name} from NSE's equity list
         self._now = now or (lambda: datetime.now(IST))
 
@@ -317,6 +320,17 @@ today'), not a stock-style move, return or filings list.", "missing"),))
         lo = _at(prior, CLOSE) if prior else _at(_prev_day(day), CLOSE)
         hi = _at(day, CLOSE)
         opening = _at(day, OPEN)
+        odd = [d for d in (prior, day) if d and is_special_session(d, self.special_days)]
+        if prior in odd:                                         # its close is unknown: nothing from that calendar day counts
+            lo = _at((Date.fromisoformat(prior) + timedelta(days=1)).isoformat(), time(0, 0))
+        if day in odd:                                           # its hours are unknown: only items before that day are certain
+            hi = _at(day, time(0, 0))
+        if odd:
+            names = " and ".join(human_date(d) for d in odd)
+            gaps.append(Gap("special_session", f"{names} {'was a' if len(odd) == 1 else 'were'} special trading "
+                            f"session{'' if len(odd) == 1 else 's'} (a weekend or other session with hours of its own), so "
+                            "filings and news published that day cannot be placed before or after the close and are not "
+                            "listed.", "limit"))
 
         def timing(t):
             return "after the previous close, before the open" if t < opening else "during market hours"
@@ -363,7 +377,7 @@ today'), not a stock-style move, return or filings list.", "missing"),))
 
         factors.sort(key=lambda f: f.when)
         complete = not any(g.code in CHECK_FAILURES for g in gaps)
-        none_found = complete and not factors and move.status in ("ok", "unverified_large_move", "possible_listing")
+        none_found = complete and not factors and not odd and move.status in ("ok", "unverified_large_move", "possible_listing")
         if none_found:
             gaps.append(Gap("no_clear_evidence", f"No filing, corporate action, board meeting or relevant news was "
                             f"found between the {human_date(prior) if prior else 'previous'} close and the "
