@@ -326,14 +326,22 @@ today'), not a stock-style move, return or filings list.", "missing"),))
         if day in odd:                                           # its hours are unknown: only items before that day are certain
             hi = _at(day, time(0, 0))
         if odd:
-            names = " and ".join(human_date(d) for d in odd)
-            gaps.append(Gap("special_session", f"{names} {'was a' if len(odd) == 1 else 'were'} special trading "
-                            f"session{'' if len(odd) == 1 else 's'} (a weekend or other session with hours of its own), so "
-                            "filings and news published that day cannot be placed before or after the close and are not "
-                            "listed.", "limit"))
+            if len(odd) == 2:
+                lead = f"{human_date(odd[0])} and {human_date(odd[1])} were special trading sessions"
+                tail = "filings and news published on those days cannot be placed before or after the close and are not listed."
+            elif odd[0] == prior:
+                lead = f"The previous trading day, {human_date(prior)}, was a special trading session"
+                tail = (f"filings and news published on {human_date(prior)} cannot be placed before or after its close and "
+                        "are not listed for this move.")
+            else:
+                lead = f"{human_date(day)} was a special trading session"
+                tail = "filings and news published on that day cannot be placed before or after the close and are not listed."
+            gaps.append(Gap("special_session", f"{lead} (a weekend or other session with hours of its own), so {tail}", "limit"))
 
         def timing(t):
-            return "after the previous close, before the open" if t < opening else "during market hours"
+            base = "after the previous close, before the open" if t < opening else "during market hours"
+            # with a special session in the window the label also names the publication date, so the reader can check it
+            return f"published {human_date(t.date().isoformat())}, {base}" if odd else base
 
         factors, name = [], self._name(inst)
         try:                                                     # filings; the wide window also gives the full name

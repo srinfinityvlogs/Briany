@@ -57,7 +57,8 @@ def test_the_environment_variable_is_read(monkeypatch):
 def test_a_move_on_a_sunday_session_uses_only_items_before_that_day():
     p = asm().why_moved("acme", on="2026-11-08")
     assert [f.detail for f in p.factors] == ["Fri evening, after the Friday close", "Saturday morning"]
-    assert all(f.timing == "after the previous close, before the open" for f in p.factors)
+    assert [f.timing for f in p.factors] == ["published 6 Nov 2026, after the previous close, before the open",
+                                             "published 7 Nov 2026, after the previous close, before the open"]
     assert "Sunday during the evening session" not in str([f for f in p.factors])         # ambiguous: left out, not mislabelled
     assert [g.code for g in p.gaps if g.code == "special_session"] == ["special_session"]
     assert "8 Nov 2026 was a special trading session" in next(g.text for g in p.gaps if g.code == "special_session")
@@ -75,11 +76,14 @@ def test_with_nothing_else_the_answer_does_not_claim_there_was_no_evidence():
 # ================================================================ a move on the day AFTER the special session
 def test_a_monday_after_a_sunday_session_does_not_inherit_the_sunday_evening_items():
     p = asm().why_moved("acme", on="2026-11-09")
-    assert [f.timing for f in p.factors] == ["after the previous close, before the open", "during market hours"]
+    assert [f.timing for f in p.factors] == ["published 9 Nov 2026, after the previous close, before the open",
+                                             "published 9 Nov 2026, during market hours"]
     shown = " ".join(str(f) for f in p.factors)
     assert "Monday before the open" in shown and "Monday during market hours" in shown
     assert "Sunday during the evening session" not in shown and "Fri evening" not in shown
-    assert "8 Nov 2026 was a special trading session" in next(g.text for g in p.gaps if g.code == "special_session")
+    assert next(g.text for g in p.gaps if g.code == "special_session").startswith(
+        "The previous trading day, 8 Nov 2026, was a special trading session")
+    assert next(g.text for g in p.gaps if g.code == "special_session").endswith("are not listed for this move.")
     assert fallback_text(p).count("special trading session") == 1 and validate_text(fallback_text(p), p) == []
 
 
@@ -109,6 +113,7 @@ def test_both_the_move_day_and_the_previous_day_special_gives_one_gap_naming_bot
     gap = next(g for g in p.gaps if g.code == "special_session")
     assert gap.text.startswith("7 Nov 2026 and 8 Nov 2026 were special trading sessions")
     assert [f for f in p.factors] == []                      # Sat 00:00 to Sun 00:00 is Saturday's own ambiguous day
+    assert "filings and news published on those days" in gap.text
     assert [g.code for g in p.gaps].count("special_session") == 1
 
 
@@ -117,3 +122,13 @@ def test_the_caveat_cannot_be_dropped_from_a_message():
     text = fallback_text(p)
     no_caveat = "\n".join(l for l in text.splitlines() if "special trading session" not in l)
     assert validate_text(no_caveat, p) == ["required caveat missing (special_session): include 'special trading session'"]
+
+
+def test_the_line_a_user_reads_shows_when_each_filing_was_published():
+    text = fallback_text(asm().why_moved("acme", on="2026-11-08"))
+    assert "NSE filing, published 6 Nov 2026, after the previous close, before the open: General - Fri evening" in text
+    assert "published 7 Nov 2026, after the previous close, before the open: General - Saturday morning" in text
+    assert "Sunday during the evening session" not in text
+    normal = {"2026-11-05": (99.0, 98.0), "2026-11-06": (100.0, 99.0), "2026-11-09": (104.0, 100.0)}
+    plain = fallback_text(asm(days=normal).why_moved("acme", on="2026-11-09"))
+    assert "published " not in plain.split("Sources")[0] and "NSE filing, after the previous close, before the open" in plain
