@@ -78,3 +78,13 @@ jobs:
             python -m briany.ingest --refresh-actions; rc2=$?
             exit $(( rc1 || rc2 ))
           fi
+      - name: Also store the day's FII/DII flows and deals
+        # NSE keeps only the latest day, so a run that is dropped loses a day for good. This workflow's schedule has proven
+        # reliable, so it also takes the snapshot (idempotent: an unchanged day is not rewritten). A failure here is shown as
+        # a warning and does not fail the price ingest.
+        if: always() && github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_MAX_MEMORY_MB: "30"
+        run: python -m briany.flows_ingest

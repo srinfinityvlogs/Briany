@@ -234,6 +234,12 @@ class Assembler:
     def _today(self) -> str:
         return self._now().astimezone(IST).date().isoformat()
 
+    def _no_close_today(self, day: str) -> bool:
+        """True on a weekday after the 09:15 open when the newest stored close is from an earlier day: today's session is
+        in progress, or NSE's file is not out, or it is a holiday. Before 09:15 the earlier close is simply the latest one."""
+        now = self._now().astimezone(IST)
+        return day < now.date().isoformat() and now.weekday() < 5 and now.time() >= time(9, 15)
+
     def _resolve(self, query):
         res = self.resolver.resolve(query)
         if res.status in ("exact", "confident"):
@@ -793,12 +799,23 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                                                      "it may have been a weekend or market holiday, so no close is given.",
                                                      "missing"))
             day = on
+        latest_asked, fell_back = day, None
         try:
             rows = self.index.day(day)
         except NseError:
-            return self._index_refusal(inst, Gap("index_file_unavailable", f"NSE's index file for {human_date(day)} could "
-                                                 "not be fetched (it may not be published yet), so no level is given.",
-                                                 "missing"))
+            rows = None
+            if on is None:                       # the newest file may simply not be out yet: use the day before, and say so
+                before = self.store.day_on_or_before((Date.fromisoformat(day) - timedelta(days=1)).isoformat())
+                if before and before != day:
+                    try:
+                        rows = self.index.day(before)
+                        fell_back, day = latest_asked, before
+                    except NseError:
+                        rows = None
+            if rows is None:
+                return self._index_refusal(inst, Gap("index_file_unavailable", f"NSE's index file for "
+                                                     f"{human_date(latest_asked)} could not be fetched (it may not be "
+                                                     "published yet), so no level is given.", "missing"))
         row = find_row(rows, inst.name)
         if row is None:
             return self._index_refusal(inst, Gap("index_not_in_file", f"{inst.name} is not in NSE's index file for "
@@ -814,6 +831,13 @@ today'), not a stock-style move, return or filings list.", "missing"),))
         src = INDEX_SOURCE
         facts = [Fact(f"Closing level, {human_date(day)}", level_text(row.close), row.close, src, day)]
         gaps = self._stale_gap(day) if on is None else []
+        if fell_back:
+            gaps.append(Gap("index_latest_missing", f"NSE's index file for {human_date(fell_back)} is not available yet, so "
+                            f"this is the previous trading day, {human_date(day)}.", "limit"))
+        elif on is None and self._no_close_today(day):
+            gaps.append(Gap("no_close_today", "No close for today is stored yet (the market may still be open, closed for a "
+                            f"holiday, or NSE's file may not be out yet), so this is the last stored close, {human_date(day)}.",
+                            "limit"))
         if row.points is not None and row.pct is not None:
             facts.append(Fact("Points change", f"{row.points:+,.2f}", row.points, src, day))
             facts.append(Fact("Change from previous close", pct_text(row.pct), row.pct, src, day))

@@ -1,10 +1,11 @@
 name: ingest-flows
 
 on:
-  schedule:
-    - cron: "0 14 * * 1-5"       # 19:30 IST Mon-Fri
-    - cron: "0 16 * * 1-5"       # 21:30 IST Mon-Fri: in case NSE published late
-    - cron: "0 22 * * 1-5"       # 03:30 IST Tue-Sat: safety net (GitHub may start scheduled runs hours late)
+  schedule:                       # never at minute 0: GitHub delays or drops scheduled runs at the start of an hour
+    - cron: "17 14 * * 1-5"       # 19:47 IST Mon-Fri
+    - cron: "43 15 * * 1-5"       # 21:13 IST Mon-Fri: in case NSE published late
+    - cron: "23 22 * * 1-5"       # 03:53 IST Tue-Sat: the feed still shows the previous day until the evening
+    - cron: "47 5 * * 2-6"        # 11:17 IST Tue-Sat: last chance before the next day's data replaces it
   workflow_dispatch:
     inputs:
       check:

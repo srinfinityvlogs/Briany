@@ -38,6 +38,9 @@ class Resp(io.BytesIO):
         return False
 
 
+NOTHING = {"00000000": ""}          # a truthy file map that holds no real day: every request gets NSE's HTML page
+
+
 class Opener:
     """Serves the files by date; anything else answers the way NSE does for a day without a file."""
 
@@ -215,13 +218,26 @@ def test_an_index_without_a_change_figure_shows_the_close_and_says_so():
     assert validate_text(text, p) == []
 
 
-def test_holiday_html_page_is_a_gap_not_another_days_figures():
-    a = asm(days=("2026-10-30", "2026-11-03", "2026-11-10"), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
-    p = a.index_close("nifty")                                               # latest stored day is 10 Nov: no file served
+def test_when_neither_the_latest_nor_the_previous_file_exists_it_is_a_gap_not_a_guess():
+    a = asm(days=("2026-10-30", "2026-11-03", "2026-11-10"), opener=Opener(NOTHING), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
+    p = a.index_close("nifty")                                               # nothing is served for any stored day
     assert p.status == "refused" and p.facts == () and [g.code for g in p.gaps] == ["index_file_unavailable"]
     text = fallback_text(p)
     assert "could not be fetched" in text and "10 Nov 2026" in text and "23,810" not in text
     assert text.startswith("I can't give a reliable figure for Nifty 50.")
+    assert validate_text(text, p) == []
+    named = asm(days=("2026-10-30", "2026-11-03", "2026-11-10"), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
+    assert named.index_close("nifty", on="2026-11-10").status == "refused"   # a day the user NAMED is never swapped for another
+
+
+def test_a_latest_file_that_is_not_out_falls_back_to_the_previous_trading_day_and_says_so():
+    a = asm(days=("2026-10-30", "2026-11-03", "2026-11-10"), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
+    p = a.index_close("nifty")                                               # 10 Nov has no file (HTML page); 3 Nov has
+    assert p.status == "ok" and p.facts[0].date == "2026-11-03"
+    assert [g.code for g in p.gaps] == ["data_may_be_stale", "index_latest_missing"]       # 3 Nov is a week old by 10 Nov
+    text = fallback_text(p)
+    assert text.startswith("Nifty 50 closed at 23,810.85 on 3 Nov 2026")
+    assert "NSE's index file for 10 Nov 2026 is not available yet, so this is the previous trading day, 3 Nov 2026." in text
     assert validate_text(text, p) == []
 
 
@@ -347,6 +363,9 @@ def test_end_to_end_without_any_model_the_question_is_answered_by_code():
 def test_end_to_end_refusals_are_plain_and_keep_no_stock_footer():
     a = bot(days=("2026-10-30", "2026-11-03", "2026-11-10"), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
     ans = Bot(a.asm, DeadChain(), RESOLVER, now=lambda: datetime(2026, 11, 10, 20, 0, tzinfo=IST)).ask("nifty today")
+    assert ans.kind == "index" and "closed at 23,810.85 on 3 Nov 2026" in ans.text and "previous trading day, 3 Nov 2026" in ans.text
+    none = asm(days=("2026-10-30", "2026-11-03", "2026-11-10"), opener=Opener(NOTHING), now=datetime(2026, 11, 10, 20, 0, tzinfo=IST))
+    ans = Bot(none, DeadChain(), RESOLVER, now=lambda: datetime(2026, 11, 10, 20, 0, tzinfo=IST)).ask("nifty today")
     assert ans.kind == "index" and "could not be fetched" in ans.text and "23,810" not in ans.text
     assert bot().ask("sensex today").text.startswith("I only have NSE indices")
     assert "Nifty 50 close today" in bot().ask("what is the index today").text

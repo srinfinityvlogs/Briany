@@ -102,7 +102,7 @@ Defaults: 3 questions a minute and 40 a day per user (`RATE_LIMIT_PER_MINUTE`, `
 | Workflow | Purpose |
 |---|---|
 | `ingest-prices` | Scheduled daily load of end-of-day files and corporate actions; also backfill and read-only checks |
-| `ingest-flows` | Scheduled evenings (19:30, 21:30, 03:30 IST): store the day's FII/DII flows and bulk, block and short-selling deals in Redis (`flz:*`), about 3 KB a day. NSE gives the latest day only, so a day not stored is lost. Run with `check = yes` for a read-only report |
+| `ingest-flows` | Scheduled at 19:47, 21:13, 03:53 and 11:17 IST (never on the hour: GitHub delays or drops scheduled runs at the start of an hour), and also as a last step of `ingest-prices`'s scheduled runs: store the day's FII/DII flows and bulk, block and short-selling deals in Redis (`flz:*`), about 3 KB a day. NSE gives the latest day only, so a day not stored is lost. Run with `check = yes` for a read-only report |
 | `ask-bot` | Ask the full bot a question on real data and read the result in the log |
 | `assemble-evidence` | Print the verified packet (before any model) for one question (modes: why, return, events, index) |
 | `route-test` | Check how the question router behaves on a built-in set of questions |
@@ -171,7 +171,8 @@ a new release of a library can never change a deployment on its own.
   yesterday?" refers to.
 - Indices (NSE only): the day's close, change, open/high/low and NSE's published P/E, P/B and dividend yield, and the change
   in level over 1w, 1m, 3m, 6m, 1y or ytd. All of it comes from NSE's end-of-day index file, fetched on demand and cached for
-  a few hours (nothing is stored per day); the bot never explains why an index moved (it says so in one line) and does not
+  an hour when it is today's or yesterday's file and for a week when older (a failure is never cached; nothing is stored per
+  day); the bot never explains why an index moved (it says so in one line) and does not
   cover BSE indices such as the Sensex. A return reads two files (the start day is the last stored trading day on or before
   the target, within 7 days, as for stocks) and is refused when either file is missing, when the index did not exist at the
   start (about a quarter of the 169 indices are newer than Dec 2025), for India VIX and Nifty50 Dividend Points (a
@@ -186,6 +187,12 @@ a new release of a library can never change a deployment on its own.
 - News covers about the last week, so older days say news was not checked. Headlines that say only "Reliance" or "RIL"
   are not matched to Reliance Industries (precision over recall).
 - FII/DII data appears only when the day asked about is the latest stored day.
+- Which index close is "today": the latest stored trading day. If NSE's file for that day is not out yet, the bot uses the
+  previous stored trading day and says so ("not available yet, so this is the previous trading day"); a day the user named is
+  never swapped. On a weekday after the 09:15 open, when the newest stored close is from an earlier day, the answer adds "No
+  close for today is stored yet (the market may still be open, closed for a holiday, or NSE's file may not be out yet), so this
+  is the last stored close, <date>". There is no live or intraday index data, so "why is the Nifty down" during the session
+  shows the last completed close, the note, and the line that index moves are not explained.
 - Special sessions: no source here gives the hours of a special session (a Muhurat or Budget day, an early close), and none are
   typed in by hand. A weekend day, or a weekday listed in the `SPECIAL_SESSION_DAYS` environment variable (comma-separated ISO
   dates, set it in Vercel when NSE announces one), is treated as ambiguous: filings and news published on that calendar day are

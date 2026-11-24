@@ -8,7 +8,7 @@ numbers such as '-.63' and '.89', '-' where a figure does not apply, older days 
 does NOT answer 404: it answers HTTP 200 with an HTML 'Service Temporarily Unavailable' page. So the status code proves
 nothing here: the body is checked, and anything that is not a complete index CSV for exactly the requested day raises
 IndexFileError (a subclass of NseError, so every caller that already handles NSE failures handles this one).
-Nothing is stored for days: a parsed day is cached in Redis for a few hours and fetched again when needed.
+Nothing is stored for days: a parsed day is cached in Redis (an hour for today and yesterday, a week for older days) and fetched again when needed.
 """
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import date as Date
+from datetime import date as Date, datetime
+from zoneinfo import ZoneInfo
 
 from briany.index_names import index_key
 from briany.nse import NseError
@@ -34,7 +35,9 @@ HEADERS = {
 }
 REQUIRED = ("Index Name", "Index Date", "Closing Index Value", "Points Change", "Change(%)")
 MIN_ROWS = 50                    # real files hold 167 to 169; a short file is a partial download, not a market fact
-TTL_INDEX = 6 * 3600             # a published day does not change; kept short so a revised file is picked up the same day
+TTL_RECENT = 3600                # today's and yesterday's file: kept short, in case NSE revises a freshly published file
+TTL_PAST = 7 * 86400             # an older day does not change: kept a week, so a repeated question costs no fetch
+IST = ZoneInfo("Asia/Kolkata")
 _NUMBER = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)")
 
 
@@ -132,10 +135,18 @@ def _unpack(day: str, data) -> tuple:
 class IndexClient:
     """Fetches one day's file on demand. `cache` is a MemoryCache or RedisCache from briany.nse (or None)."""
 
-    def __init__(self, cache=None, opener=None, sleep=time.sleep, retries=1, timeout=20, ttl=TTL_INDEX):
-        self.cache, self.ttl = cache, ttl
+    def __init__(self, cache=None, opener=None, sleep=time.sleep, retries=1, timeout=20, ttl=None, now=None):
+        self.cache, self.ttl = cache, ttl                      # ttl: a fixed lifetime for every day (tests); else by age
+        self._now = now or (lambda: datetime.now(IST))
         self._open, self._sleep = opener or urllib.request.urlopen, sleep
         self.retries, self.timeout = retries, timeout
+
+    def _ttl_for(self, day: str) -> int:
+        """A file for today or yesterday lives an hour; an older one a week. Failures are never cached at all."""
+        if self.ttl is not None:
+            return self.ttl
+        age = (self._now().astimezone(IST).date() - Date.fromisoformat(day)).days
+        return TTL_RECENT if age <= 1 else TTL_PAST
 
     def day(self, day: str) -> tuple:
         """All index rows for the ISO `day`. Raises IndexFileError when the file is missing, blocked or not the full file."""
@@ -175,7 +186,7 @@ class IndexClient:
         rows = parse_index_csv(body.decode("utf-8", "replace"), day)
         if self.cache is not None:
             try:
-                self.cache.set(key, _pack(rows), self.ttl)
+                self.cache.set(key, _pack(rows), self._ttl_for(day))
             except Exception:  # noqa: BLE001
                 pass
         return rows
