@@ -15,7 +15,7 @@ REQUIRED = {
 }
 
 SECRET_FIELDS = ("telegram_bot_token", "telegram_webhook_secret",
-                 "groq_api_key", "gemini_api_key", "redis_url")
+                 "groq_api_key", "gemini_api_key", "redis_url", "web_chat_secret")
 
 
 class ConfigError(RuntimeError):
@@ -77,6 +77,7 @@ class Settings:
     groq_api_key: str = ""
     redis_url: str = ""
     gemini_api_key: str = ""
+    web_chat_secret: str = ""                   # shared with the Order Flow board server; empty = the web chat is off
     gemini_model: str = ""                      # empty = auto-pick at runtime
     groq_model: str = "openai/gpt-oss-120b"
     allowed_telegram_ids: frozenset = field(default_factory=frozenset)
@@ -99,6 +100,7 @@ class Settings:
             groq_api_key=_first(env, REQUIRED["groq_api_key"]),
             redis_url=_first(env, REQUIRED["redis_url"]),
             gemini_api_key=_first(env, ("GEMINI_API_KEY",)),
+            web_chat_secret=_first(env, ("WEB_CHAT_SECRET",)),
             gemini_model=_first(env, ("GEMINI_MODEL",)),
             groq_model=_first(env, ("GROQ_MODEL",)) or "openai/gpt-oss-120b",
             allowed_telegram_ids=_id_set(env, "ALLOWED_TELEGRAM_IDS"),

@@ -6,8 +6,8 @@ from briany.config import ConfigError, Settings
 from briany.logging_setup import setup_logging
 
 
-def build_handler(env=None, client=None, api_post=None):
-    """Settings -> Redis -> instrument list -> Bot -> Handler. `client` and `api_post` exist so tests can inject fakes."""
+def _core(env=None, client=None):
+    """Settings -> Redis -> instrument list -> Bot. Shared by the Telegram handler and the web chat."""
     from briany.bot import Bot
     from briany.evidence import Assembler
     from briany.indexfile import IndexClient
@@ -16,7 +16,7 @@ def build_handler(env=None, client=None, api_post=None):
     from briany.nse import NseClient, RedisCache
     from briany.store import RedisStore
     from briany.symbols import Resolver
-    from briany.telegram_bot import Handler, State, TelegramApi, default_post
+    from briany.telegram_bot import State
 
     settings = Settings.from_env(env).validate()
     setup_logging(settings.log_level, settings.secret_values())
@@ -43,5 +43,19 @@ def build_handler(env=None, client=None, api_post=None):
     bot = Bot(assembler, Chain(providers), resolver)
     state = State(client, context_ttl=settings.context_ttl_seconds, per_minute=settings.rate_limit_per_minute,
                   per_day=settings.rate_limit_per_day)
+    return settings, bot, state
+
+
+def build_handler(env=None, client=None, api_post=None):
+    """Settings -> Redis -> instrument list -> Bot -> Handler. `client` and `api_post` exist so tests can inject fakes."""
+    from briany.telegram_bot import Handler, TelegramApi, default_post
+    settings, bot, state = _core(env, client)
     api = TelegramApi(settings.telegram_bot_token, post=api_post or default_post)
     return Handler(bot, api, state, settings.allowed_telegram_ids)
+
+
+def build_webchat(env=None, client=None):
+    """The same Bot and limits behind the Order Flow chat panel. One fixed user, so one shared set of limits."""
+    from briany.webchat import WebChat
+    _settings, bot, state = _core(env, client)
+    return WebChat(bot, state)
