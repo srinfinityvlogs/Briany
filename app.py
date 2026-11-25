@@ -93,5 +93,7 @@ async def ask(request: Request, x_chat_secret: str = Header("")):
     except Exception as e:  # noqa: BLE001 - config errors name variables, never values
         log.error("web chat could not be built: %s: %s", type(e).__name__, e)
         raise HTTPException(status_code=503, detail="not ready")
+    if body.get("reset") is True:
+        return JSONResponse(await run_in_threadpool(chat.reset))
     result = await run_in_threadpool(chat.ask, body.get("question"), body.get("tab"))
     return JSONResponse(result, status_code=429 if result.get("limited") else 200)

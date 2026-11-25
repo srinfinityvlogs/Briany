@@ -140,6 +140,13 @@ class State:
         except Exception as e:  # noqa: BLE001
             log.warning("redis context save failed: %s", type(e).__name__)
 
+    def clear_context(self, uid: int) -> None:
+        """Forget which company a follow-up refers to (the web chat's New chat button)."""
+        try:
+            self.r.delete(f"tg:ctx:{uid}")
+        except Exception as e:  # noqa: BLE001
+            log.warning("redis context clear failed: %s", type(e).__name__)
+
     def _over(self, name: str, uid: int, window: str, limit: int, ttl: int) -> bool:
         key = f"tg:rl:{name}:{uid}:{window}"
         pipe = self.r.pipeline()

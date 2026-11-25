@@ -34,6 +34,23 @@ FNO_REPLY = {
 BSE_NOTE = "All BSE tab: I only cover NSE-listed stocks and NSE indices, so BSE-only stocks and the Sensex are not covered."
 
 
+# Lines that start a new short paragraph in the web panel: the caveat under the numbers, and the as-of line. The
+# Telegram text is unchanged; only what this module returns gets the extra blank lines.
+NEW_PARAGRAPH = re.compile(r"^(This is a |As of )")
+
+
+def spaced(text: str) -> str:
+    """Blank line before the caveat and the as-of line, never two blank lines in a row."""
+    out: list[str] = []
+    for line in text.split("\n"):
+        if NEW_PARAGRAPH.match(line) and out and out[-1] != "":
+            out.append("")
+        if line == "" and out and out[-1] == "":
+            continue
+        out.append(line)
+    return "\n".join(out).strip("\n")
+
+
 def clean_tab(tab) -> str | None:
     return tab if isinstance(tab, str) and tab in TABS else None
 
@@ -64,7 +81,12 @@ class WebChat:
         route = getattr(answer, "route", None)
         log.info("web answer kind=%s writer=%s tool=%s problems=%d tab=%s", answer.kind, answer.writer,
                  route.tool if route else "-", len(answer.problems), tab or "-")
-        return self._reply(answer.kind != "error", answer.text, answer.kind, tab=tab)
+        return self._reply(answer.kind != "error", spaced(answer.text), answer.kind, tab=tab)
+
+    def reset(self) -> dict:
+        """The New chat button: forget the company a follow-up would refer to."""
+        self.state.clear_context(self.uid)
+        return self._reply(True, "", "reset")
 
     @staticmethod
     def _reply(ok: bool, text: str, kind: str, limited: str = "", tab: str | None = None) -> dict:

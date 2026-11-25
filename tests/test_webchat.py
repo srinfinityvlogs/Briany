@@ -208,3 +208,61 @@ def test_an_error_answer_on_the_bse_tab_carries_no_bse_note():
     bot.ask = lambda q, c=None: SimpleNamespace(**{**orig(q, c).__dict__, "kind": "error", "text": "Something went wrong."})
     out = chat.ask("TCS 1 year return", "bse")
     assert not out["ok"] and out["note"] == ""
+
+
+# ---------------------------------------------------------------- spacing and New chat
+def test_spaced_puts_a_blank_line_before_the_caveat_and_the_as_of_line():
+    from briany.webchat import spaced
+    raw = ("Tata Consultancy Services Limited (TCS) price return from 23 Oct 2026 to 23 Nov 2026: -2.77%.\n"
+           "Official close ₹2,530.00 on 23 Oct 2026; ₹2,460.00 on 23 Nov 2026.\n"
+           "This is a price return; it excludes dividends.\n\n"
+           "Sources: NSE end-of-day file\n"
+           "As of 25 Nov 2026, 18:13 IST. Prices are NSE official end-of-day closes, not live quotes.\n"
+           "Information only, not investment advice.")
+    assert spaced(raw) == ("Tata Consultancy Services Limited (TCS) price return from 23 Oct 2026 to 23 Nov 2026: -2.77%.\n"
+                           "Official close ₹2,530.00 on 23 Oct 2026; ₹2,460.00 on 23 Nov 2026.\n\n"
+                           "This is a price return; it excludes dividends.\n\n"
+                           "Sources: NSE end-of-day file\n\n"
+                           "As of 25 Nov 2026, 18:13 IST. Prices are NSE official end-of-day closes, not live quotes.\n"
+                           "Information only, not investment advice.")
+
+
+def test_spaced_never_doubles_a_blank_line_and_leaves_other_text_alone():
+    from briany.webchat import spaced
+    assert spaced("One.\n\n\n\nAs of 1 Jan 2026, 10:00 IST.") == "One.\n\nAs of 1 Jan 2026, 10:00 IST."
+    assert spaced("Just one line.") == "Just one line."
+    assert spaced("This is a note.\nSecond line.") == "This is a note.\nSecond line."
+
+
+def test_the_answer_the_web_gets_is_spaced_but_the_bot_text_is_untouched():
+    chat, bot, _ = make()
+    orig = bot.ask
+    bot.ask = lambda q, c=None: SimpleNamespace(**{**orig(q, c).__dict__, "text": "Body.\nThis is a price return.\nAs of 1 Jan 2026, 10:00 IST."})
+    assert chat.ask("TCS 1 year return")["text"] == "Body.\n\nThis is a price return.\n\nAs of 1 Jan 2026, 10:00 IST."
+
+
+def test_reset_forgets_the_follow_up_company_and_only_for_the_web_user():
+    chat, bot, r = make()
+    chat.ask("TCS 1 year return")
+    State(r).save_context(111, Context("INFY", "Infosys"))
+    assert chat.reset()["ok"]
+    chat.ask("and 3 months?")
+    assert bot.asked[1][1].last_symbol == ""
+    assert State(r).load_context(111).last_symbol == "INFY"
+
+
+def test_reset_through_the_route_does_not_ask_the_bot_or_count_against_limits(client, monkeypatch):
+    calls = []
+
+    class Fake:
+        def reset(self):
+            calls.append("reset")
+            return {"ok": True, "text": "", "kind": "reset", "limited": "", "note": ""}
+
+        def ask(self, q, t):
+            calls.append("ask")
+            return {}
+    monkeypatch.setattr(web, "get_web", lambda: Fake())
+    r = ask(client, {"reset": True})
+    assert r.status_code == 200 and r.json()["kind"] == "reset" and calls == ["reset"]
+    assert ask(client, {"reset": "yes", "question": "hi"}).status_code == 200 and calls[-1] == "ask"
