@@ -20,16 +20,20 @@ Record per day (JSON, then zlib + base64; about 3 KB compressed for a real day):
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from briany import nse_parsers as P
 from briany.nse import NseError
+from briany.sessions import is_special_session
 
 IST = ZoneInfo("Asia/Kolkata")
 KEEP_DAYS = 400                      # calendar days kept, measured from the newest stored day
 CATEGORIES = ("DII", "FII/FPI")      # both must be present for a day's flows to be stored
 KINDS = (("bulk", "BULK_DEALS"), ("block", "BLOCK_DEALS"), ("short", "SHORT_DEALS"))
+RETRY_WAITS = (30, 90)               # seconds to wait before trying again after NSE refuses (403) or sends a page, not JSON
+REQUIRED = ("fii", "bulk", "block")  # what every trading day since storage began must have (short rows run a day behind)
 
 
 def build_updates(fii_raw, deals_raw):
@@ -117,18 +121,34 @@ def prune(store, keep_days: int = KEEP_DAYS):
     return store.prune_flows(cutoff)
 
 
-def ingest_flows(nse, store, now=None):
+def _fetch(nse, path, sleep, waits):
+    """(data, number of retries used). NSE sometimes answers a GitHub runner with HTTP 403 or a block page for a while; this
+    job is not waiting for a person, so it waits and asks again. Any other error (5xx, network) is already retried inside
+    NseClient and is raised here at once."""
+    for attempt in range(len(waits) + 1):
+        try:
+            return nse.get_json(path), attempt
+        except NseError as e:
+            blocked = "HTTP 403" in str(e) or "non-JSON" in str(e)
+            if not blocked or attempt == len(waits):
+                raise
+            sleep(waits[attempt])
+
+
+def ingest_flows(nse, store, now=None, sleep=time.sleep, waits=RETRY_WAITS):
     """Fetch both feeds, store what is complete. Returns (report lines, error count). A feed that cannot be fetched or read
     does not stop the other; a feed that still shows the previous day (not yet published) is simply stored again, unchanged."""
     now = now or datetime.now(IST)
     lines, errors, fii_raw, deals_raw = [], 0, None, None
     for label, path in (("FII/DII", "fiidiiTradeReact"), ("large deals", "snapshot-capital-market-largedeal")):
         try:
-            raw = nse.get_json(path)
+            raw, retries = _fetch(nse, path, sleep, waits)
         except NseError as e:
-            lines.append(f"ERROR {label}: {e}")
+            lines.append(f"ERROR {label}: {e}" + (f" (still refused after {len(waits)} retries)" if "HTTP 403" in str(e) and waits else ""))
             errors += 1
             continue
+        if retries:
+            lines.append(f"note {label}: NSE refused at first, then answered after {retries} retr{'y' if retries == 1 else 'ies'}")
         if path == "fiidiiTradeReact":
             fii_raw = raw
         else:
@@ -143,6 +163,36 @@ def ingest_flows(nse, store, now=None):
     if pruned:
         lines.append(f"pruned {len(pruned)} old day(s): {pruned[0]} .. {pruned[-1]}")
     return lines, errors
+
+
+def verify_flows(store, special=frozenset()):
+    """(report lines, ok). Every weekday trading day since the first stored FII/DII day must have FII/DII, bulk and block
+    records: a missing one cannot be recovered (NSE keeps only the latest day), so it is reported with the kinds missing.
+    Weekend sessions and days in `special` are skipped (their flows are not assumed). Short rows are not required: they run a
+    day behind and are not published for every day."""
+    flow_days = store.flow_days()
+    with_fii = [d for d in flow_days if (store.get_flow(d) or {}).get("fii")]
+    if not with_fii:
+        return ["PROBLEM no FII/DII record is stored at all"], False
+    first = with_fii[0]
+    expected = [d for d in store.all_days() if d >= first and not is_special_session(d, special)]
+    missing = []
+    for d in expected:
+        rec = store.get_flow(d) or {}
+        # bulk and block may legitimately be stored as an empty list (NSE declared none); FII/DII never is
+        gone = [k for k in REQUIRED if k not in rec or (k == "fii" and not rec[k])]
+        if gone:
+            missing.append((d, gone))
+    lines = [f"checked {len(expected)} trading day(s) from {first} to {expected[-1] if expected else first}: "
+             f"FII/DII, bulk and block expected on each"]
+    if not missing:
+        lines.append("ok   every trading day since storage began is complete")
+        return lines, True
+    for d, gone in missing:
+        lines.append(f"PROBLEM {d}: missing {', '.join(gone)}")
+    lines.append("A day that is missing cannot be rebuilt once NSE shows a newer day. If the newest day is among them, run "
+                 "the ingest-flows workflow now.")
+    return lines, False
 
 
 def flows_report(store, last: int = 8):

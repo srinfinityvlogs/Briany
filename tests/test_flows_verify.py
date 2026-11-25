@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: Apache-2.0
+"""NSE sometimes answers a GitHub runner with HTTP 403 (seen on 24 Nov 2026 at 08:13 IST, both feeds, while the runs before and
+after were fine), and NSE keeps only the latest day, so the ingest job waits and retries, and a scheduled verify turns red when a
+trading day since storage began is missing."""
+from datetime import datetime
+from types import SimpleNamespace
+
+import fakeredis
+import pytest
+
+from briany.flows import IST, RETRY_WAITS, ingest_flows, verify_flows
+from briany.marketdata import PriceRow
+from briany.nse import NseError
+from briany.store import MemoryStore, RedisStore
+from test_flows import DEALS, FII, NOW, FakeNse as _Fake
+
+BLOCKED = "HTTP 403 from NSE (fiidiiTradeReact)"
+
+
+class SeqNse:
+    """Raises the queued errors for a path before answering; records the order of calls."""
+
+    def __init__(self, errors_by_path):
+        self.errors = {k: list(v) for k, v in errors_by_path.items()}
+        self.calls = []
+
+    def get_json(self, path, params=None, ttl=0):
+        self.calls.append(path)
+        if self.errors.get(path):
+            raise NseError(self.errors[path].pop(0))
+        return FII if path == "fiidiiTradeReact" else DEALS
+
+
+# ================================================================ patient retries
+def test_a_refusal_is_waited_out_and_the_second_try_stores_the_day():
+    nse, sleeps, store = SeqNse({"fiidiiTradeReact": [BLOCKED]}), [], MemoryStore()
+    lines, errors = ingest_flows(nse, store, now=NOW, sleep=sleeps.append)
+    assert errors == 0 and sleeps == [30]
+    assert "note FII/DII: NSE refused at first, then answered after 1 retry" in lines
+    assert store.get_flow("2026-11-20")["fii"][0][0] == "DII"
+
+
+def test_two_refusals_then_success_uses_both_waits_and_a_persistent_block_is_an_error():
+    sleeps = []
+    lines, errors = ingest_flows(SeqNse({"fiidiiTradeReact": [BLOCKED, BLOCKED]}), MemoryStore(), now=NOW, sleep=sleeps.append)
+    assert errors == 0 and sleeps == [30, 90] and any("after 2 retries" in l for l in lines)
+    sleeps.clear()
+    lines, errors = ingest_flows(SeqNse({"fiidiiTradeReact": [BLOCKED] * 3, "snapshot-capital-market-largedeal": [BLOCKED] * 3}),
+                                 MemoryStore(), now=NOW, sleep=sleeps.append)
+    assert errors == 2 and sleeps == [30, 90, 30, 90]
+    assert "ERROR FII/DII: HTTP 403 from NSE (fiidiiTradeReact) (still refused after 2 retries)" in lines
+    assert RETRY_WAITS == (30, 90)
+
+
+def test_a_block_page_is_retried_but_other_errors_are_not():
+    sleeps = []
+    ingest_flows(SeqNse({"fiidiiTradeReact": ["NSE returned a non-JSON page (fiidiiTradeReact); possibly blocked"]}),
+                 MemoryStore(), now=NOW, sleep=sleeps.append)
+    assert sleeps == [30]
+    sleeps.clear()
+    lines, errors = ingest_flows(SeqNse({"fiidiiTradeReact": ["HTTP 503 from NSE (fiidiiTradeReact)"]}), MemoryStore(), now=NOW,
+                                 sleep=sleeps.append)
+    assert sleeps == [] and errors == 1 and "ERROR FII/DII: HTTP 503 from NSE (fiidiiTradeReact)" in lines
+    sleeps.clear()
+    ingest_flows(SeqNse({}), MemoryStore(), now=NOW, sleep=sleeps.append)
+    assert sleeps == []                                                      # a clean run never waits
+
+
+def test_waits_can_be_switched_off():
+    sleeps = []
+    _lines, errors = ingest_flows(SeqNse({"fiidiiTradeReact": [BLOCKED]}), MemoryStore(), now=NOW, sleep=sleeps.append, waits=())
+    assert errors == 1 and sleeps == []
+
+
+# ================================================================ verify
+def price_store(days):
+    s = MemoryStore()
+    for d in days:
+        s.put_day(d, {"TCS": PriceRow(100.0, 100.0, 10)})
+    return s
+
+
+def full(rec_extra=None):
+    rec = {"fii": [["DII", 1.0, 2.0, -1.0], ["FII/FPI", 3.0, 2.0, 1.0]], "bulk": [["A", "C", "BUY", 1, 2.0, ""]], "block": []}
+    rec.update(rec_extra or {})
+    return rec
+
+
+def test_all_days_complete_is_ok_and_days_before_storage_began_are_ignored():
+    s = price_store(["2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23"])
+    for d in ("2026-11-20", "2026-11-23"):
+        s.put_flow(d, full())
+    lines, ok = verify_flows(s)
+    assert ok and lines[0] == "checked 2 trading day(s) from 2026-11-20 to 2026-11-23: FII/DII, bulk and block expected on each"
+    assert lines[1] == "ok   every trading day since storage began is complete"
+
+
+def test_a_missing_day_or_kind_is_named_and_turns_the_check_red():
+    s = price_store(["2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25"])
+    s.put_flow("2026-11-20", full())
+    s.put_flow("2026-11-23", full())                                                              # complete
+    s.put_flow("2026-11-24", {"fii": full()["fii"], "short": [["A", 5]]})                        # bulk and block missing
+    lines, ok = verify_flows(s)
+    assert not ok
+    assert "PROBLEM 2026-11-24: missing bulk, block" in lines and "PROBLEM 2026-11-25: missing fii, bulk, block" in lines
+    assert not any("2026-11-23" in l and "PROBLEM" in l for l in lines)
+    assert lines[-1].startswith("A day that is missing cannot be rebuilt")
+
+
+def test_empty_bulk_or_block_lists_count_as_present_but_an_empty_fii_does_not():
+    s = price_store(["2026-11-20", "2026-11-23"])
+    s.put_flow("2026-11-20", full())                                       # block == [] (NSE declared none): fine
+    s.put_flow("2026-11-23", full({"fii": []}))
+    lines, ok = verify_flows(s)
+    assert not ok and "PROBLEM 2026-11-23: missing fii" in lines and not any("2026-11-20: missing" in l for l in lines)
+
+
+def test_weekends_and_listed_special_days_are_not_expected_but_short_rows_are_never_required():
+    s = price_store(["2026-11-20", "2026-11-21", "2026-11-23", "2026-11-24"])        # Sat 21 Nov is a weekend session
+    s.put_flow("2026-11-20", full())
+    s.put_flow("2026-11-23", full())
+    s.put_flow("2026-11-24", full())                                                 # no short rows anywhere
+    assert verify_flows(s)[1] is True
+    s2 = price_store(["2026-11-20", "2026-11-23", "2026-11-24"])
+    s2.put_flow("2026-11-20", full())
+    s2.put_flow("2026-11-24", full())                                                # 23 Nov missing...
+    assert verify_flows(s2)[1] is False
+    assert verify_flows(s2, special=frozenset({"2026-11-23"}))[1] is True            # ...unless it is a listed special day
+
+
+def test_nothing_stored_is_a_problem():
+    assert verify_flows(price_store(["2026-11-20"])) == (["PROBLEM no FII/DII record is stored at all"], False)
+
+
+def test_the_cli_exit_codes(monkeypatch, capsys):
+    from briany import flows_ingest
+    redis = fakeredis.FakeRedis(decode_responses=True)
+    st = RedisStore(redis)
+    for d in ("2026-11-20", "2026-11-23"):
+        st.put_day(d, {"TCS": PriceRow(100.0, 100.0, 10)})
+    st.put_flow("2026-11-20", full())
+    monkeypatch.setattr("briany.ingest.connect", lambda: (redis, st, SimpleNamespace(redis_max_memory_mb=30)))
+    with pytest.raises(SystemExit) as e:
+        flows_ingest.main(["--verify"])
+    assert e.value.code == 1 and "PROBLEM 2026-11-23: missing fii, bulk, block" in capsys.readouterr().out
+    st.put_flow("2026-11-23", full())
+    with pytest.raises(SystemExit) as e:
+        flows_ingest.main(["--verify"])
+    assert e.value.code == 0 and "ok   every trading day" in capsys.readouterr().out
+
+
+def test_the_verify_workflow_is_scheduled_off_the_hour_and_runs_the_verify_step_last():
+    from pathlib import Path
+    import yaml
+    doc = yaml.safe_load((Path(__file__).resolve().parents[1] / ".github" / "workflows" / "verify-flows.yml").read_text())
+    steps = doc["jobs"]["verify"]["steps"]
+    assert "--verify" in str(steps[-1].get("run")) and "|| true" in str([x.get("run") for x in steps])
+    assert all("run" in x or "uses" in x for x in steps)

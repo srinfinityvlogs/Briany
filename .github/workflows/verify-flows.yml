@@ -1,0 +1,32 @@
+name: verify-flows
+
+on:
+  schedule:
+    - cron: "37 6 * * 2-6"        # 12:07 IST Tue-Sat, after the last ingest chance of the day; never on the hour
+  workflow_dispatch:
+
+concurrency:
+  group: ingest-flows
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-ingest.txt
+      - name: One more attempt to store the latest day (a failure here is judged by the next step)
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_MAX_MEMORY_MB: "30"
+        run: python -m briany.flows_ingest || true
+      - name: Verify that no trading day since storage began is missing (red run = a day is missing)
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_MAX_MEMORY_MB: "30"
+          SPECIAL_SESSION_DAYS: ${{ vars.SPECIAL_SESSION_DAYS }}
+        run: python -m briany.flows_ingest --verify
