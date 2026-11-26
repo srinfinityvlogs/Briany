@@ -14,7 +14,7 @@ from briany.answer import (SUMMARY_SYSTEM, build_footer, compose_move, fallback_
                            summary_input, validate_summary, validate_text)
 from briany.evidence import IST, Packet
 from briany.llm import LlmError
-from briany.router import Context, Route, Routed, route_question
+from briany.router import Context, Route, Routed, find_companies, find_indices, route_question
 
 WRITER_KINDS = ("move",)          # packet kinds whose wording the model may rephrase (all others are code-built)
 
@@ -45,6 +45,10 @@ UNSUPPORTED = {
     "other": "I can answer questions about one NSE-listed stock: why it moved, its return over a period, or its "
              "latest filings and results dates. For an NSE index I can give its close on a day.",
 }
+# market_data, when the question names a stock: not a market-wide figure, so say what can be asked about a stock
+STOCK_PRICE = ("I don't have a latest price or close for a single stock. I can show why a stock moved "
+               "('why is TCS up today?'), its return over a period ('TCS 1 month return') and its latest filings "
+               "('TCS results date'). For an NSE index I can give its close ('Nifty 50 close today').")
 ERROR_TEXT = "Something went wrong while preparing that answer. Please try again in a moment."
 
 
@@ -127,7 +131,10 @@ class Bot:
             if route.tool == "smalltalk":
                 return Answer(HELP, "fixed", route, None, "fixed", (), context, routed)
             if route.tool == "unsupported":
-                text = UNSUPPORTED.get(route.args.get("reason"), UNSUPPORTED["other"])
+                reason = route.args.get("reason")
+                text = UNSUPPORTED.get(reason, UNSUPPORTED["other"])
+                if reason == "market_data" and not find_indices(question) and find_companies(question, self.resolver):
+                    text = STOCK_PRICE                 # a named stock, not a market-wide figure: say what can be asked about it
                 return Answer(text, "fixed", route, None, "fixed", (), context, routed)
             packet = self._packet(route)
             text, writer, problems, w_attempts, shown = self._compose(packet, question)

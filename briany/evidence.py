@@ -478,9 +478,18 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                 return refuse(Gap("no_flow_data", "No FII/DII records are stored yet.", "missing"))
             day = with_fii[-1]
         rec = self._flow_record(day) if day in days else None
+        with_fii = [d for d in days if (self._flow_record(d) or {}).get("fii")]      # days that hold FII/DII (a day may hold only deals)
+        latest_price = self.store.latest_day()
+        requested = None
+        if on and not (rec and rec.get("fii")) and with_fii and latest_price and on > latest_price and on > with_fii[-1]:
+            # A day after the latest priced day, such as today before NSE has published: it may still arrive, so show the
+            # latest stored day and say plainly which day that is. A past day that is missing cannot be added and is refused.
+            requested, day = on, with_fii[-1]
+            rec = self._flow_record(day)
         if not rec or not rec.get("fii"):
+            first = with_fii[0] if with_fii else days[0]
             return refuse(Gap("no_flow_record", f"No FII/DII record is stored for {human_date(day)}; records start on "
-                              f"{human_date(days[0])}, and NSE only publishes the latest day, so earlier days cannot be added.",
+                              f"{human_date(first)}, and NSE only publishes the latest day, so earlier days cannot be added.",
                               "missing"))
         rows = {r[0]: r for r in rec["fii"]}
         bad = _flow_problem(rows)
@@ -494,8 +503,10 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                       Fact(f"{cat}: sold", crore_text(sell), sell, FLOW_SOURCE, day),
                       Fact(f"{cat}: net", crore_text(net, signed=True), net, FLOW_SOURCE, day)]
         gaps = []
-        latest_price = self.store.latest_day()
-        if on is None and latest_price and day < latest_price:
+        if requested:
+            gaps.append(Gap("flows_not_yet", f"FII/DII data for {human_date(requested)} is not stored yet; this is the "
+                            "latest day stored.", "limit"))
+        elif on is None and latest_price and day < latest_price:
             gaps.append(Gap("flows_not_yet", f"FII/DII data for {human_date(latest_price)} is not stored yet; this is the "
                             "latest day stored.", "limit"))
         return Packet("flows", "ok", "", "FII/DII", self._stamp(), tuple(facts), (), (), tuple(gaps), True)
@@ -525,8 +536,9 @@ today'), not a stock-style move, return or filings list.", "missing"),))
                                   f"other ({bad}), so no total is given.", "missing"), kind="flows_period")
         span = f"{human_date(window[0])} to {human_date(window[-1])}" if window else ""
         if not have:
+            first_fii = next((d for d in days if (self._flow_record(d) or {}).get("fii")), days[0])
             return refuse(Gap("no_flow_record", f"No FII/DII data is stored for {span or 'this period'}; records start on "
-                              f"{human_date(days[0])}.", "missing"), kind="flows_period")
+                              f"{human_date(first_fii)}.", "missing"), kind="flows_period")
         if len(have) < len(window):
             facts = []
             for d in sorted(have)[-3:]:
