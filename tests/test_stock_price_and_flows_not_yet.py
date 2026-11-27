@@ -19,7 +19,7 @@ def unsupported(reason, question):
 
 
 def test_a_named_stock_asked_for_a_price_hears_what_can_be_asked_about_a_stock():
-    for question in ("acme close", "acme price today", "ACME INDUSTRIES latest"):
+    for question in ("acme delivery", "acme turnover figures", "ACME INDUSTRIES volume"):      # no price word: the stock-close route does not apply
         ans = unsupported("market_data", question)
         assert (ans.text, ans.kind, ans.writer, ans.packet) == (B.STOCK_PRICE, "fixed", "fixed", None)
     assert "single stock" in B.STOCK_PRICE and "Nifty 50 close today" in B.STOCK_PRICE and "market-wide" not in B.STOCK_PRICE

@@ -14,6 +14,9 @@ from briany.llm import LlmError
 from briany.symbols import find_index
 
 PERIODS = ("1w", "1m", "3m", "6m", "1y", "ytd")
+# Words that ask a named stock for its price or close; with one, a model's "market-wide figure" refusal is overruled.
+STOCK_PRICE_WORDS = re.compile(r"\b(close|closed|closing|price|prices|ltp|quote|trading|traded|latest|today|yesterday)\b", re.I)
+
 UNSUPPORTED_REASONS = ("comparison", "compare_period", "advice", "prediction", "market_data", "index_not_covered",
                        "flows_stock", "period", "company_not_found", "other")
 MAX_QUESTION = 300
@@ -472,6 +475,11 @@ def route_question(question, chain, resolver, today: str, context: Context | Non
             if second.tool in ("index_close", "period_return", "compare_returns", "fii_dii", "large_deals") or (
                     second.tool == "unsupported" and second.args.get("reason") in (
                         "index_not_covered", "compare_period", "flows_stock")):
+                return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
+            # A named stock asked for its price or close is not a market-wide figure: its latest move and close are what the
+            # stored data holds, so answer that instead of refusing.
+            if (r.args.get("reason") == "market_data" and second.tool == "why_moved" and STOCK_PRICE_WORDS.search(q)
+                    and not find_indices(q)):
                 return Routed(Route(second.tool, second.args, "rules:override"), tuple(attempts), False)
         fixed = _fix_index_route(Route(r.tool, r.args, f"llm:{provider}"), today)
         return Routed(fixed, tuple(attempts), False)
