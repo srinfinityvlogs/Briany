@@ -9,6 +9,7 @@ Exit code 1 when a feed could not be fetched or read, or a kind was incomplete (
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -17,7 +18,7 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="read-only report on what is stored")
     ap.add_argument("--verify", action="store_true", help="read-only: exit 1 if a trading day since storage began is incomplete")
     a = ap.parse_args(argv)
-    from briany.flows import flows_report, ingest_flows, verify_flows
+    from briany.flows import KNOWN_GAPS, flows_report, ingest_flows, verify_flows
     from briany.sessions import special_days_from_env
     from briany.ingest import connect, memory_report
     from briany.nse import NseClient
@@ -27,7 +28,9 @@ def main(argv=None):
         used, limit = mem
         print(f"redis memory: {used / 1e6:.1f} MB used" + (f" of {limit / 1e6:.1f} MB" if limit else " (no limit reported)"))
     if a.verify:
-        lines, ok = verify_flows(store, special_days_from_env())
+        # KNOWN_FLOW_GAPS (a repository variable) adds to the dates in briany/flows.py: lost days that can never be repaired
+        gaps = KNOWN_GAPS | special_days_from_env(os.environ.get("KNOWN_FLOW_GAPS", ""))
+        lines, ok = verify_flows(store, special_days_from_env(), gaps)
         print("\n".join(lines))
         sys.exit(0 if ok else 1)
     if a.check:

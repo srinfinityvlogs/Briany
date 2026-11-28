@@ -29,4 +29,5 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           REDIS_MAX_MEMORY_MB: "30"
           SPECIAL_SESSION_DAYS: ${{ vars.SPECIAL_SESSION_DAYS }}
+          KNOWN_FLOW_GAPS: ${{ vars.KNOWN_FLOW_GAPS }}
         run: python -m briany.flows_ingest --verify
