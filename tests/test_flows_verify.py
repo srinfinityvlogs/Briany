@@ -159,8 +159,11 @@ def test_the_verify_workflow_is_scheduled_off_the_hour_and_runs_the_verify_step_
 
 
 # ================================================================ days that were lost for good
+LOST = frozenset({"2026-11-24"})                # an example day; real ones go in KNOWN_GAPS or the KNOWN_FLOW_GAPS variable
+
+
 def gap_store(extra_missing=()):
-    """20, 23, 24, 25 and 26 Nov; 24 Nov (the day NSE blocked the runners) has no flows at all."""
+    """20, 23, 24, 25 and 26 Nov; the 24th has prices but no flows at all."""
     s = price_store(["2026-11-20", "2026-11-23", "2026-11-24", "2026-11-25", "2026-11-26"])
     for d in ("2026-11-20", "2026-11-23", "2026-11-25", "2026-11-26"):
         if d not in extra_missing:
@@ -168,37 +171,48 @@ def gap_store(extra_missing=()):
     return s
 
 
-def test_24_nov_2026_is_a_known_gap_so_the_check_stays_green_and_says_so():
-    assert "2026-11-24" in KNOWN_GAPS
-    lines, ok = verify_flows(gap_store())
+def test_a_missing_day_that_is_listed_as_a_known_gap_keeps_the_check_green_and_is_named():
+    lines, ok = verify_flows(gap_store(), known_gaps=LOST)
     assert ok
     assert lines[0].startswith("checked 5 trading day(s) from 2026-11-20 to 2026-11-26")
     assert any(l.startswith("note 2026-11-24: known gap, not counted (missing fii, bulk, block;") for l in lines)
     assert lines[-1] == "ok   every trading day since storage began is complete, apart from the known gap above"
 
 
-def test_a_new_missing_day_still_turns_it_red_next_to_the_known_gap():
-    lines, ok = verify_flows(gap_store(extra_missing=("2026-11-25",)))
+def test_nothing_is_a_known_gap_unless_listed_so_the_same_day_is_a_problem_by_default():
+    assert isinstance(KNOWN_GAPS, frozenset) and not KNOWN_GAPS
+    lines, ok = verify_flows(gap_store())
+    assert not ok and "PROBLEM 2026-11-24: missing fii, bulk, block" in lines
+
+
+def test_a_new_missing_day_still_turns_it_red_next_to_a_known_gap():
+    lines, ok = verify_flows(gap_store(extra_missing=("2026-11-25",)), known_gaps=LOST)
     assert not ok
     assert "PROBLEM 2026-11-25: missing fii, bulk, block" in lines and not any("PROBLEM 2026-11-24" in l for l in lines)
     assert any(l.startswith("note 2026-11-24: known gap") for l in lines)
 
 
-def test_without_the_list_the_same_day_is_a_problem_and_extra_gaps_can_be_passed():
-    lines, ok = verify_flows(gap_store(), known_gaps=frozenset())
-    assert not ok and "PROBLEM 2026-11-24: missing fii, bulk, block" in lines
-    lines, ok = verify_flows(gap_store(extra_missing=("2026-11-25",)), known_gaps=KNOWN_GAPS | {"2026-11-25"})
+def test_several_known_gaps_are_named_in_the_ok_line():
+    lines, ok = verify_flows(gap_store(extra_missing=("2026-11-25",)), known_gaps=LOST | {"2026-11-25"})
     assert ok and lines[-1] == "ok   every trading day since storage began is complete, apart from the known gaps above"
 
 
 def test_a_known_gap_day_that_is_complete_says_nothing():
     s = gap_store()
     s.put_flow("2026-11-24", full())
-    lines, ok = verify_flows(s)
+    lines, ok = verify_flows(s, known_gaps=LOST)
     assert ok and not any("known gap" in l for l in lines) and lines[-1] == "ok   every trading day since storage began is complete"
 
 
-def test_the_cli_uses_the_known_gap_and_the_repository_variable(monkeypatch, capsys):
+def test_a_holiday_with_no_prices_is_never_expected():
+    s = price_store(["2026-11-20", "2026-11-23", "2026-11-25"])             # no prices for Tuesday 24 Nov: a market holiday
+    for d in ("2026-11-20", "2026-11-23", "2026-11-25"):
+        s.put_flow(d, full())
+    lines, ok = verify_flows(s)
+    assert ok and lines[0].startswith("checked 3 trading day(s)") and not any("2026-11-24" in l for l in lines)
+
+
+def test_the_cli_reads_the_known_gaps_variable(monkeypatch, capsys):
     from briany import flows_ingest
     redis = fakeredis.FakeRedis(decode_responses=True)
     st = RedisStore(redis)
@@ -208,11 +222,16 @@ def test_the_cli_uses_the_known_gap_and_the_repository_variable(monkeypatch, cap
         st.put_flow(d, full())
     monkeypatch.setattr("briany.ingest.connect", lambda: (redis, st, SimpleNamespace(redis_max_memory_mb=30)))
     monkeypatch.delenv("KNOWN_FLOW_GAPS", raising=False)
-    with pytest.raises(SystemExit) as e:                                 # 24 Nov is known; 25 Nov is not
+    with pytest.raises(SystemExit) as e:                                 # nothing is known: 24 and 25 Nov are both problems
+        flows_ingest.main(["--verify"])
+    out = capsys.readouterr().out
+    assert e.value.code == 1 and "PROBLEM 2026-11-24" in out and "PROBLEM 2026-11-25" in out
+    monkeypatch.setenv("KNOWN_FLOW_GAPS", "2026-11-24")                  # 24 Nov listed; 25 Nov is not
+    with pytest.raises(SystemExit) as e:
         flows_ingest.main(["--verify"])
     out = capsys.readouterr().out
     assert e.value.code == 1 and "PROBLEM 2026-11-25" in out and "PROBLEM 2026-11-24" not in out and "note 2026-11-24: known gap" in out
-    monkeypatch.setenv("KNOWN_FLOW_GAPS", "2026-11-25, nonsense")        # an unreadable entry is ignored
+    monkeypatch.setenv("KNOWN_FLOW_GAPS", "2026-11-24, nonsense, 2026-11-25")      # an unreadable entry is ignored
     with pytest.raises(SystemExit) as e:
         flows_ingest.main(["--verify"])
     assert e.value.code == 0 and "apart from the known gaps above" in capsys.readouterr().out

@@ -35,9 +35,10 @@ KINDS = (("bulk", "BULK_DEALS"), ("block", "BLOCK_DEALS"), ("short", "SHORT_DEAL
 RETRY_WAITS = (30, 90)               # seconds to wait before trying again after NSE refuses (403) or sends a page, not JSON
 REQUIRED = ("fii", "bulk", "block")  # what every trading day since storage began must have (short rows run a day behind)
 # Days that were lost for good: NSE keeps only the latest day, so a day the ingest could not store cannot be added later.
-# Listed here so that verify stays green for them and goes red only for a NEW missing day. More can be added without a code
-# change through the KNOWN_FLOW_GAPS repository variable (comma-separated dates).
-KNOWN_GAPS = frozenset({"2026-11-24"})   # NSE answered the GitHub runners with HTTP 403 all that day
+# List them here (or, without a code change, in the KNOWN_FLOW_GAPS repository variable: comma-separated dates) so that verify
+# stays green for them and goes red only for a NEW missing day. None so far. (Market holidays need no entry: a day with no stored
+# prices is not a trading day and is never expected. 24 Nov 2026 was one, for Guru Nanak Jayanti.)
+KNOWN_GAPS = frozenset()
 
 
 def build_updates(fii_raw, deals_raw):
